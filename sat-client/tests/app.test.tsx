@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { render, screen, act } from "@testing-library/react";
+import { render, screen, act, fireEvent } from "@testing-library/react";
 import App from "../src/App";
 
 const ISS_BLOCK = `ISS (ZARYA)
@@ -63,7 +63,10 @@ beforeEach(() => {
   capturedClick = null;
   loadHandler = null;
   clickHitsFeature = true;
-  geoMock = vi.fn();
+  geoMock = vi.fn(
+    (ok: (p: { coords: { latitude: number; longitude: number } }) => void) =>
+      ok({ coords: { latitude: 40.0, longitude: -74.0 } })
+  );
   addSourceMock.mockClear();
   setDataMock.mockClear();
   vi.useFakeTimers();
@@ -148,5 +151,29 @@ describe("App", () => {
           f.properties.selected === (f.properties.catnr === 25544)
       )
     ).toBe(true);
+  });
+
+  it("shows Visible now and a Follow toggle in the panel", async () => {
+    render(<App />);
+    await act(async () => {});
+    await act(async () => { vi.advanceTimersByTime(1000); });
+    await act(async () => {
+      capturedClick!({ point: { x: 0, y: 0 } });
+    });
+    expect(screen.getByText(/Visible now/i)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /follow/i })).toBeInTheDocument();
+  });
+
+  it("toggles follow mode on and clears it on close", async () => {
+    render(<App />);
+    await act(async () => {});
+    await act(async () => { vi.advanceTimersByTime(1000); });
+    await act(async () => {
+      capturedClick!({ point: { x: 0, y: 0 } });
+    });
+    fireEvent.click(screen.getByRole("button", { name: /follow/i }));
+    expect(screen.getByRole("button", { name: /following/i })).toBeInTheDocument();
+    fireEvent.click(screen.getByText("Close"));
+    expect(screen.queryByRole("button", { name: /following/i })).not.toBeInTheDocument();
   });
 });

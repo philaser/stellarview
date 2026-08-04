@@ -17,6 +17,7 @@ export interface MapViewProps {
   observer: { lat: number; lon: number } | null;
   onSelect: (catnr: number) => void;
   onSetObserver: (lat: number, lon: number) => void;
+  followCatnr: number | null;
 }
 
 export default function MapView({
@@ -25,6 +26,7 @@ export default function MapView({
   observer,
   onSelect,
   onSetObserver,
+  followCatnr,
 }: MapViewProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<MapLibreMap | null>(null);
@@ -131,6 +133,14 @@ export default function MapView({
       (map.getSource("observer") as maplibregl.GeoJSONSource).setData(feature);
     }
   }, [observer, styleLoaded]);
+
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !styleLoaded || followCatnr === null) return;
+    const target = positions.find((p) => p.catnr === followCatnr);
+    if (!target) return;
+    map.easeTo({ center: [target.lon, target.lat], duration: 500, essential: true });
+  }, [positions, followCatnr, styleLoaded]);
 
   return <div ref={containerRef} className="map" />;
 }

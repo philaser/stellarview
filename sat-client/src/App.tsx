@@ -5,6 +5,7 @@ import { parseTleBlock, type TleSatellite } from "./sat/tle";
 import { positionAt } from "./sat/propagate";
 import { buildGroundTrack } from "./sat/groundTrack";
 import { nextPasses, type ObserverPoint, type Pass } from "./sat/passes";
+import { satelliteVisible } from "./sat/visibility";
 
 const FALLBACK_OBSERVER: ObserverPoint = { lat: 48.8566, lon: 2.3522, heightM: 0 };
 
@@ -19,6 +20,7 @@ export default function App() {
   selectedCatnrRef.current = selectedCatnr;
   const [observer, setObserver] = useState<ObserverPoint | null>(null);
   const [passes, setPasses] = useState<Pass[] | null>(null);
+  const [followCatnr, setFollowCatnr] = useState<number | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -87,11 +89,13 @@ export default function App() {
   useEffect(() => {
     if (selectedCatnr === null || observer === null) {
       setPasses(null);
+      setFollowCatnr(null);
       return;
     }
     const sat = sats.find((s) => s.catnr === selectedCatnr);
     if (!sat) {
       setPasses(null);
+      setFollowCatnr(null);
       return;
     }
     setPasses(nextPasses(sat.satrec, observer, 48));
@@ -99,6 +103,7 @@ export default function App() {
 
   const selected = sats.find((s) => s.catnr === selectedCatnr) ?? null;
   const pos = positions.find((p) => p.catnr === selectedCatnr);
+  const visibility = selected && observer ? satelliteVisible(selected.satrec, observer, new Date()) : null;
 
   return (
     <div className="app">
@@ -108,6 +113,7 @@ export default function App() {
         observer={observer ? { lat: observer.lat, lon: observer.lon } : null}
         onSelect={setSelectedCatnr}
         onSetObserver={(lat, lon) => setObserver({ lat, lon, heightM: 0 })}
+        followCatnr={followCatnr}
       />
       <div className="controls">
         <button onClick={() => window.location.reload()}>Reload TLEs</button>
@@ -124,7 +130,11 @@ export default function App() {
           <div className="row"><span>Period</span><span>{Math.round(selected.periodS / 60)} min</span></div>
           <div className="row"><span>Inclination</span><span>{selected.inclinationDeg.toFixed(1)}°</span></div>
           <div className="row"><span>Next passes (48h)</span><span>{passes ? passes.length : "…"}</span></div>
+          <div className="row"><span>Visible now</span><span>{visibility ? (visibility.visible ? "Yes" : `No — ${visibility.reason}`) : "…"}</span></div>
           <button onClick={() => setSelectedCatnr(null)}>Close</button>
+          <button onClick={() => setFollowCatnr(followCatnr === selected.catnr ? null : selected.catnr)}>
+            {followCatnr === selected.catnr ? "Following" : "Follow"}
+          </button>
         </div>
       )}
       {selected && observer && passes && passes.length > 0 && (

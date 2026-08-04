@@ -9,6 +9,7 @@ let mockLngLat = { lng: 2.35, lat: 48.86 };
 const addSourceMock = vi.fn();
 const addLayerMock = vi.fn();
 const setDataMock = vi.fn();
+const easeToMock = vi.fn();
 const addedSources = new Set<string>();
 
 vi.mock("maplibre-gl", () => ({
@@ -26,6 +27,7 @@ vi.mock("maplibre-gl", () => ({
     queryRenderedFeatures() {
       return clickHitsFeature ? [{ properties: { catnr: 25544 } }] : [];
     }
+    easeTo(...a: unknown[]) { easeToMock(...a); }
     flyTo() {}
     remove() {}
   },
@@ -43,6 +45,7 @@ vi.mock("maplibre-gl", () => ({
     queryRenderedFeatures() {
       return clickHitsFeature ? [{ properties: { catnr: 25544 } }] : [];
     }
+    easeTo(...a: unknown[]) { easeToMock(...a); }
     flyTo() {}
     remove() {}
   },
@@ -57,6 +60,7 @@ describe("MapView", () => {
     addSourceMock.mockClear();
     addLayerMock.mockClear();
     setDataMock.mockClear();
+    easeToMock.mockClear();
     addedSources.clear();
   });
 
@@ -66,6 +70,7 @@ describe("MapView", () => {
     observer: null,
     onSelect: () => {},
     onSetObserver: () => {},
+    followCatnr: null,
   };
 
   it("adds the satellites and orbits sources", () => {
@@ -117,5 +122,27 @@ describe("MapView", () => {
     expect(paint["circle-radius"]).toEqual(["case", ["get", "selected"], 11, 8]);
     expect(paint["circle-stroke-color"]).toEqual("#ffffff");
     expect(paint["circle-stroke-width"]).toEqual(["case", ["get", "selected"], 3, 2]);
+  });
+
+  it("follows the selected satellite with easeTo when followCatnr is set", () => {
+    const { rerender } = render(<MapView {...props} />);
+    act(() => { loadHandler!(); });
+    rerender(
+      <MapView
+        {...props}
+        positions={[{ catnr: 25544, lat: 45, lon: 2, altKm: 420 }]}
+        followCatnr={25544}
+      />
+    );
+    expect(easeToMock).toHaveBeenCalledWith(expect.objectContaining({ center: [2, 45], duration: 500 }));
+  });
+
+  it("does not follow when followCatnr is null", () => {
+    const { rerender } = render(<MapView {...props} />);
+    act(() => { loadHandler!(); });
+    rerender(
+      <MapView {...props} positions={[{ catnr: 25544, lat: 45, lon: 2, altKm: 420 }]} followCatnr={null} />
+    );
+    expect(easeToMock).not.toHaveBeenCalled();
   });
 });
