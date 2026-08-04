@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import maplibregl, { Map as MapLibreMap } from "maplibre-gl";
-import type { FlightState } from "../../server/src/types";
+import type { FlightState, FlightTrack } from "../../server/src/types";
 
 export const ALTITUDE_COLORS = {
   low: "#22c55e",
@@ -18,10 +18,11 @@ export function altitudeColor(altBaro: number | null): string {
 interface MapViewProps {
   bounds: [number, number, number, number];
   flights: FlightState[];
+  track: FlightTrack | null;
   onSelect: (flight: FlightState | null) => void;
 }
 
-export default function MapView({ bounds, flights, onSelect }: MapViewProps) {
+export default function MapView({ bounds, flights, track, onSelect }: MapViewProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<MapLibreMap | null>(null);
   const onSelectRef = useRef(onSelect);
@@ -106,6 +107,50 @@ export default function MapView({ bounds, flights, onSelect }: MapViewProps) {
       source.setData(featureCollection);
     }
   }, [flights, styleLoaded]);
+
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !styleLoaded) return;
+
+    const removeTrack = () => {
+      if (map.getLayer("track-line")) {
+        map.removeLayer("track-line");
+        map.removeSource("track-source");
+      }
+    };
+
+    if (!track || track.points.length < 2) {
+      removeTrack();
+      return;
+    }
+
+    const coordinates = track.points.map((p) => [p.lon, p.lat] as [number, number]);
+    const feature: GeoJSON.Feature = {
+      type: "Feature",
+      properties: {},
+      geometry: { type: "LineString", coordinates },
+    };
+
+    if (!map.getSource("track-source")) {
+      map.addSource("track-source", { type: "geojson", data: feature });
+      map.addLayer(
+        {
+          id: "track-line",
+          type: "line",
+          source: "track-source",
+          layout: { "line-cap": "round", "line-join": "round" },
+          paint: {
+            "line-color": "#38bdf8",
+            "line-width": 2,
+            "line-dasharray": [2, 1],
+          },
+        },
+        "flights-layer"
+      );
+    } else {
+      (map.getSource("track-source") as maplibregl.GeoJSONSource).setData(feature);
+    }
+  }, [track, styleLoaded]);
 
   return <div ref={containerRef} className="map" />;
 }

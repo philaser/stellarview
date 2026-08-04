@@ -62,7 +62,7 @@ export default function App() {
 
   return (
     <div className="app">
-      <MapView bounds={REGIONS[region].bounds} flights={flights} onSelect={setSelected} />
+      <MapView bounds={REGIONS[region].bounds} flights={flights} track={null} onSelect={setSelected} />
       <div className="controls">
         <select value={region} onChange={(e) => changeRegion(e.target.value)}>
           {Object.entries(REGIONS).map(([key, r]) => (

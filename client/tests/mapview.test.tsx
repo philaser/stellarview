@@ -6,6 +6,8 @@ let capturedClickHandler: ((e: unknown) => void) | null = null;
 let loadHandler: (() => void) | null = null;
 const addSourceMock = vi.hoisted(() => vi.fn());
 const addLayerMock = vi.hoisted(() => vi.fn());
+const removeLayerMock = vi.hoisted(() => vi.fn());
+const addedLayers = vi.hoisted(() => [] as string[]);
 
 vi.mock("maplibre-gl", () => {
   class MockMap {
@@ -20,11 +22,22 @@ vi.mock("maplibre-gl", () => {
     addLayer(...args: unknown[]) {
       if (!loadHandler) throw new Error("Style is not done loading");
       addLayerMock(...args);
+      addedLayers.push((args[0] as { id: string }).id);
     }
+    removeLayer(...args: unknown[]) {
+      if (!loadHandler) throw new Error("Style is not done loading");
+      removeLayerMock(...args);
+      const idx = addedLayers.indexOf(args[0] as string);
+      if (idx !== -1) addedLayers.splice(idx, 1);
+    }
+    removeSource() {}
     flyTo() {}
     remove() {}
     getSource() {
       return undefined;
+    }
+    getLayer(id: string) {
+      return addedLayers.includes(id) ? {} : undefined;
     }
     queryRenderedFeatures() {
       return [
@@ -41,6 +54,8 @@ describe("MapView", () => {
     loadHandler = null;
     addSourceMock.mockClear();
     addLayerMock.mockClear();
+    removeLayerMock.mockClear();
+    addedLayers.length = 0;
   });
 
   it("maps altitude to colors", () => {
@@ -55,6 +70,7 @@ describe("MapView", () => {
       <MapView
         bounds={[-10, 35, 30, 60]}
         flights={[]}
+        track={null}
         onSelect={() => {}}
       />
     );
@@ -62,7 +78,7 @@ describe("MapView", () => {
   });
 
   it("registers a click handler on the map", () => {
-    render(<MapView bounds={[-10, 35, 30, 60]} flights={[]} onSelect={() => {}} />);
+    render(<MapView bounds={[-10, 35, 30, 60]} flights={[]} track={null} onSelect={() => {}} />);
     expect(capturedClickHandler).not.toBeNull();
   });
 
@@ -85,7 +101,7 @@ describe("MapView", () => {
         lastContact: Date.now() / 1000,
       },
     ];
-    render(<MapView bounds={[-10, 35, 30, 60]} flights={flights} onSelect={() => {}} />);
+    render(<MapView bounds={[-10, 35, 30, 60]} flights={flights} track={null} onSelect={() => {}} />);
     expect(addSourceMock).not.toHaveBeenCalled();
     expect(loadHandler).not.toBeNull();
     act(() => {
@@ -93,5 +109,42 @@ describe("MapView", () => {
     });
     expect(addSourceMock).toHaveBeenCalled();
     expect(addLayerMock).toHaveBeenCalled();
+  });
+
+  const sampleTrack = {
+    icao24: "a1b2c3",
+    callsign: "UAL123",
+    points: [
+      { t: 1, lat: 35.1, lon: -95.0, altBaro: 10000 },
+      { t: 2, lat: 35.2, lon: -95.1, altBaro: 10100 },
+    ],
+  };
+
+  it("adds a track line layer when a track is provided", () => {
+    render(
+      <MapView bounds={[-10, 35, 30, 60]} flights={[]} track={sampleTrack} onSelect={() => {}} />
+    );
+    act(() => {
+      loadHandler!();
+    });
+    expect(addSourceMock).toHaveBeenCalledWith(
+      "track-source",
+      expect.objectContaining({ type: "geojson" })
+    );
+    expect(addLayerMock).toHaveBeenCalledWith(
+      expect.objectContaining({ id: "track-line", type: "line" }),
+      "flights-layer"
+    );
+  });
+
+  it("removes the track line when track becomes null", () => {
+    const { rerender } = render(
+      <MapView bounds={[-10, 35, 30, 60]} flights={[]} track={sampleTrack} onSelect={() => {}} />
+    );
+    act(() => {
+      loadHandler!();
+    });
+    rerender(<MapView bounds={[-10, 35, 30, 60]} flights={[]} track={null} onSelect={() => {}} />);
+    expect(removeLayerMock).toHaveBeenCalledWith("track-line");
   });
 });
