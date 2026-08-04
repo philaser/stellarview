@@ -26,10 +26,19 @@ export class AirLabsProvider implements FlightProvider {
     const params = new URLSearchParams({ api_key: this.opts.apiKey });
     // bbox appended literally: URLSearchParams would percent-encode the commas
     const res = await fetch(`${baseUrl}/flights?${params}&bbox=${bbox.minLon},${bbox.minLat},${bbox.maxLon},${bbox.maxLat}`);
-    if (!res.ok) throw new Error(`AirLabs responded ${res.status}`);
-    const body = (await res.json()) as { response: AirLabsFlight[] };
+    if (!res.ok) {
+      const error = new Error(`AirLabs responded ${res.status}`) as Error & {
+        status?: number;
+        retryAfter?: string | null;
+      };
+      error.status = res.status;
+      error.retryAfter = res.headers.get("X-Rate-Limit-Retry-After-Seconds");
+      throw error;
+    }
+    // AirLabs returns HTTP 200 with an error body on quota errors, so response may be missing
+    const body = (await res.json()) as { response?: AirLabsFlight[] };
 
-    return body.response
+    return (body.response ?? [])
       .filter((f) => typeof f.lat === "number" && typeof f.lng === "number")
       .map((f) => ({
         icao24: f.hex,

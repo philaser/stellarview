@@ -21,20 +21,32 @@ describe("AirLabsProvider", () => {
               updated: 1754300000,
             },
             { hex: "deadbeef", lat: null, lng: null, status: "ground" },
+            { hex: "beef01", flight_iata: "DLH456", lat: 52.5, lng: 13.4, status: "ground", updated: 1754300000 },
           ],
         }),
       })
     );
     const provider = new AirLabsProvider({ apiKey: "test-key" });
     const states = await provider.fetchStates({ minLon: -10, minLat: 35, maxLon: 30, maxLat: 60 });
-    expect(states).toHaveLength(1);
+    expect(states).toHaveLength(2);
     expect(states[0]).toMatchObject({
       icao24: "a1b2c3",
       callsign: "UAL123",
       lat: 35.5,
       lon: -95.2,
+      altitudeBaro: 10668,
+      altitudeGeo: null,
+      velocity: 250,
       heading: 92.4,
+      squawk: null,
+      positionSource: null,
       onGround: false,
+    });
+    expect(states.find((s) => s.icao24 === "beef01")).toMatchObject({
+      callsign: "DLH456",
+      lat: 52.5,
+      lon: 13.4,
+      onGround: true,
     });
   });
 
