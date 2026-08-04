@@ -58,3 +58,25 @@ html, body, #root { height: 100%; margin: 0; }
   z-index: 10;
 }
 .pass-list { max-height: 260px; overflow-y: auto; }
+.filter-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+}
+.controls label {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: #e5e7eb;
+  font: 13px system-ui, sans-serif;
+  cursor: pointer;
+}
+.controls input[type="text"] {
+  background: rgba(17, 24, 39, 0.92);
+  color: #e5e7eb;
+  border: 1px solid #374151;
+  border-radius: 6px;
+  padding: 6px 10px;
+  font: 13px system-ui, sans-serif;
+}

@@ -2,9 +2,16 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, screen, act, fireEvent } from "@testing-library/react";
 import App from "../src/App";
 
-const ISS_BLOCK = `ISS (ZARYA)
+// Fixture: real TLEs fetched from CelesTrak (ISS 25544, STARLINK-1008 44714, GOES 16 41866)
+const TLE_BLOCKS = `ISS (ZARYA)
 1 25544U 98067A   26215.79638706  .00007444  00000+0  14146-3 0  9999
 2 25544  51.6316  64.4821 0007224   9.2337 350.8783 15.49332738579132
+STARLINK-1008
+1 44714U 19074B   26215.97871058  .00029734  00000+0  37585-3 0  9997
+2 44714  53.1486 198.6893 0006328  18.4929 341.6313 15.59291253371649
+GOES 16
+1 41866U 16071A   26215.85468562 -.00000082  00000+0  00000+0 0  9999
+2 41866   0.4487  85.2768 0001085 105.6447 324.4846  1.00271010 35581
 `;
 
 let capturedClick: ((e: unknown) => void) | null = null;
@@ -70,7 +77,7 @@ beforeEach(() => {
   addSourceMock.mockClear();
   setDataMock.mockClear();
   vi.useFakeTimers();
-  vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: true, text: async () => ISS_BLOCK }));
+  vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: true, text: async () => TLE_BLOCKS }));
   vi.stubGlobal("navigator", { ...navigator, geolocation: { getCurrentPosition: geoMock } });
 });
 
@@ -84,9 +91,9 @@ describe("App", () => {
     render(<App />);
     await act(async () => {});
     const calls = vi.mocked(fetch).mock.calls.map((c) => String(c[0]));
-    expect(calls.some((u) => u.startsWith("/api/tle?catnr="))).toBe(true);
+    expect(calls.some((u) => u.startsWith("/api/tle?group=active"))).toBe(true);
     await act(async () => {
-      vi.advanceTimersByTime(1000);
+      vi.advanceTimersByTime(2000);
     });
     expect(screen.getByText(/satellites loaded/)).toBeInTheDocument();
   });
@@ -99,7 +106,7 @@ describe("App", () => {
     render(<App />);
     await act(async () => {});
     await act(async () => {
-      vi.advanceTimersByTime(1000);
+      vi.advanceTimersByTime(2000);
     });
     await act(async () => {
       capturedClick!({ point: { x: 0, y: 0 } });
@@ -111,7 +118,7 @@ describe("App", () => {
     render(<App />);
     await act(async () => {});
     await act(async () => {
-      vi.advanceTimersByTime(1000);
+      vi.advanceTimersByTime(2000);
     });
     clickHitsFeature = false;
     await act(async () => {
@@ -134,13 +141,13 @@ describe("App", () => {
       loadHandler!();
     });
     await act(async () => {
-      vi.advanceTimersByTime(1000);
+      vi.advanceTimersByTime(2000);
     });
     await act(async () => {
       capturedClick!({ point: { x: 0, y: 0 } }); // selects ISS (25544)
     });
     await act(async () => {
-      vi.advanceTimersByTime(1000);
+      vi.advanceTimersByTime(2000);
     });
     const satCalls = setDataMock.mock.calls.filter((c) => c[0] === "satellites");
     expect(satCalls.length).toBeGreaterThan(0);
@@ -156,7 +163,7 @@ describe("App", () => {
   it("shows Visible now and a Follow toggle in the panel", async () => {
     render(<App />);
     await act(async () => {});
-    await act(async () => { vi.advanceTimersByTime(1000); });
+    await act(async () => { vi.advanceTimersByTime(2000); });
     await act(async () => {
       capturedClick!({ point: { x: 0, y: 0 } });
     });
@@ -167,7 +174,7 @@ describe("App", () => {
   it("toggles follow mode on and clears it on close", async () => {
     render(<App />);
     await act(async () => {});
-    await act(async () => { vi.advanceTimersByTime(1000); });
+    await act(async () => { vi.advanceTimersByTime(2000); });
     await act(async () => {
       capturedClick!({ point: { x: 0, y: 0 } });
     });
@@ -175,5 +182,44 @@ describe("App", () => {
     expect(screen.getByRole("button", { name: /following/i })).toBeInTheDocument();
     fireEvent.click(screen.getByText("Close"));
     expect(screen.queryByRole("button", { name: /following/i })).not.toBeInTheDocument();
+  });
+
+  it("hides GEO satellites when the GEO regime is unchecked", async () => {
+    render(<App />);
+    await act(async () => {});
+    await act(async () => {
+      loadHandler!();
+    });
+    fireEvent.click(screen.getByLabelText("GEO"));
+    await act(async () => { vi.advanceTimersByTime(2000); });
+    const geoDots = setDataMock.mock.calls
+      .filter((c) => c[0] === "satellites")
+      .at(-1)?.[1].features;
+    expect(geoDots.every((f: { properties: { catnr: number } }) => f.properties.catnr !== 41866)).toBe(true);
+  });
+
+  it("narrows by search", async () => {
+    render(<App />);
+    await act(async () => {});
+    await act(async () => {
+      loadHandler!();
+    });
+    fireEvent.change(screen.getByPlaceholderText(/search/i), { target: { value: "STARLINK" } });
+    await act(async () => { vi.advanceTimersByTime(2000); });
+    const dots = setDataMock.mock.calls.filter((c) => c[0] === "satellites").at(-1)?.[1].features;
+    expect(dots.length).toBeGreaterThan(0);
+    expect(dots.every((f: { properties: { catnr: number } }) => f.properties.catnr === 44714)).toBe(true);
+  });
+
+  it("deselects when the selected satellite is filtered out", async () => {
+    render(<App />);
+    await act(async () => {});
+    await act(async () => {
+      capturedClick!({ point: { x: 0, y: 0 } }); // selects ISS
+    });
+    expect(screen.getByText("ISS (ZARYA)")).toBeInTheDocument();
+    fireEvent.click(screen.getByLabelText("LEO")); // hides ISS
+    await act(async () => {});
+    expect(screen.queryByText("ISS (ZARYA)")).not.toBeInTheDocument();
   });
 });

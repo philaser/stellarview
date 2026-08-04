@@ -1,7 +1,14 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import MapView, { type SatDot } from "./MapView";
-import { SAT_CONFIG, CATNR_LIST } from "./config";
-import { parseTleBlock, type TleSatellite } from "./sat/tle";
+import {
+  annotate,
+  CONSTELLATIONS,
+  REGIME_COLORS,
+  type CatalogSatellite,
+  type Constellation,
+  type Regime,
+} from "./sat/catalog";
+import { parseTleBlock } from "./sat/tle";
 import { positionAt } from "./sat/propagate";
 import { buildGroundTrack } from "./sat/groundTrack";
 import { nextPasses, type ObserverPoint, type Pass } from "./sat/passes";
@@ -10,8 +17,7 @@ import { satelliteVisible } from "./sat/visibility";
 const FALLBACK_OBSERVER: ObserverPoint = { lat: 48.8566, lon: 2.3522, heightM: 0 };
 
 export default function App() {
-  const [sats, setSats] = useState<TleSatellite[]>([]);
-  const [configCount] = useState(SAT_CONFIG.length);
+  const [sats, setSats] = useState<CatalogSatellite[]>([]);
   const [loadError, setLoadError] = useState(false);
   const [positions, setPositions] = useState<SatDot[]>([]);
   const [orbits, setOrbits] = useState<Record<number, [number, number][]>>({});
@@ -21,21 +27,19 @@ export default function App() {
   const [observer, setObserver] = useState<ObserverPoint | null>(null);
   const [passes, setPasses] = useState<Pass[] | null>(null);
   const [followCatnr, setFollowCatnr] = useState<number | null>(null);
+  const [regimes, setRegimes] = useState<Set<Regime>>(new Set(["leo", "meo", "geo"]));
+  const [constellations, setConstellations] = useState<Set<Constellation>>(new Set(CONSTELLATIONS));
+  const [search, setSearch] = useState("");
 
   useEffect(() => {
     let cancelled = false;
     const load = async () => {
       try {
-        const res = await fetch(`/api/tle?catnr=${CATNR_LIST}`);
+        const res = await fetch(`/api/tle?group=active`);
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         const text = await res.text();
         if (cancelled) return;
-        const wanted = new Set(SAT_CONFIG.map((c) => c.catnr));
-        const kept = parseTleBlock(text).filter((s) => wanted.has(s.catnr));
-        setSats(kept);
-        setOrbits(
-          Object.fromEntries(kept.map((s): [number, [number, number][]] => [s.catnr, buildGroundTrack(s.satrec)]))
-        );
+        setSats(parseTleBlock(text).map(annotate));
       } catch {
         if (!cancelled) setLoadError(true);
       }
@@ -46,34 +50,56 @@ export default function App() {
     };
   }, []);
 
+  const visibleSats = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    return sats.filter(
+      (s) =>
+        regimes.has(s.regime) &&
+        constellations.has(s.constellation) &&
+        (q === "" || s.name.toLowerCase().includes(q) || String(s.catnr).includes(q))
+    );
+  }, [sats, regimes, constellations, search]);
+
+  // Orbit data for the selected satellite only (ground tracks for the whole ~16k catalog would be prohibitive).
   useEffect(() => {
-    const interval = setInterval(() => {
-      if (sats.length === 0) return;
+    const sat = sats.find((s) => s.catnr === selectedCatnr);
+    if (!sat) return;
+    setOrbits({ [sat.catnr]: buildGroundTrack(sat.satrec) });
+  }, [sats, selectedCatnr]);
+
+  useEffect(() => {
+    if (selectedCatnr !== null && !visibleSats.some((s) => s.catnr === selectedCatnr)) {
+      setSelectedCatnr(null);
+    }
+  }, [visibleSats, selectedCatnr]);
+
+  useEffect(() => {
+    const compute = () => {
       const now = new Date();
-      const next = sats
+      const next = visibleSats
         .map((s): SatDot | null => {
           try {
             const p = positionAt(s.satrec, now);
-            const cfg = SAT_CONFIG.find((c) => c.catnr === s.catnr);
             return {
               catnr: s.catnr,
               lat: p.latDeg,
               lon: p.lonDeg,
               altKm: p.altKm,
               velocityKms: p.velocityKms,
-              color: cfg?.color,
+              color: REGIME_COLORS[s.regime],
               selected: s.catnr === selectedCatnrRef.current,
             };
           } catch {
-            // positionAt throws on SGP4 error; skip this satellite this tick.
             return null;
           }
         })
         .filter((p): p is SatDot => p !== null);
       setPositions(next);
-    }, 1000);
+    };
+    compute();
+    const interval = setInterval(compute, 2000);
     return () => clearInterval(interval);
-  }, [sats]);
+  }, [visibleSats]);
 
   useEffect(() => {
     if (!navigator.geolocation) {
@@ -105,23 +131,71 @@ export default function App() {
   const pos = positions.find((p) => p.catnr === selectedCatnr);
   const visibility = selected && observer ? satelliteVisible(selected.satrec, observer, new Date()) : null;
 
+  const toggleRegime = (r: Regime) =>
+    setRegimes((prev) => {
+      const next = new Set(prev);
+      if (next.has(r)) next.delete(r);
+      else next.add(r);
+      return next;
+    });
+  const toggleConstellation = (c: Constellation) =>
+    setConstellations((prev) => {
+      const next = new Set(prev);
+      if (next.has(c)) next.delete(c);
+      else next.add(c);
+      return next;
+    });
+
   return (
     <div className="app">
       <MapView
         positions={positions}
-        orbits={selected ? { [selected.catnr]: orbits[selected.catnr] } : {}}
+        orbits={selected && orbits[selected.catnr] ? { [selected.catnr]: orbits[selected.catnr] } : {}}
         observer={observer ? { lat: observer.lat, lon: observer.lon } : null}
         onSelect={setSelectedCatnr}
         onSetObserver={(lat, lon) => setObserver({ lat, lon, heightM: 0 })}
         followCatnr={followCatnr}
       />
       <div className="controls">
+        <div className="filter-row">
+          {(["leo", "meo", "geo"] as Regime[]).map((r) => (
+            <label key={r} style={{ color: REGIME_COLORS[r] }}>
+              <input
+                type="checkbox"
+                aria-label={r.toUpperCase()}
+                checked={regimes.has(r)}
+                onChange={() => toggleRegime(r)}
+              />
+              {r.toUpperCase()}
+            </label>
+          ))}
+        </div>
+        <div className="filter-row">
+          {CONSTELLATIONS.map((c) => (
+            <label key={c} style={{ textTransform: "capitalize" }}>
+              <input
+                type="checkbox"
+                aria-label={c}
+                checked={constellations.has(c)}
+                onChange={() => toggleConstellation(c)}
+              />
+              {c}
+            </label>
+          ))}
+        </div>
+        <input
+          type="text"
+          placeholder="Search satellites…"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+        />
         <button onClick={() => window.location.reload()}>Reload TLEs</button>
       </div>
       {selected && observer && (
         <div className="panel">
           <h2>{selected.name}</h2>
-          <div className="row"><span>Category</span><span>{SAT_CONFIG.find((c) => c.catnr === selected.catnr)?.category}</span></div>
+          <div className="row"><span>Regime</span><span>{selected.regime.toUpperCase()}</span></div>
+          <div className="row"><span>Constellation</span><span>{selected.constellation}</span></div>
           <div className="row"><span>NORAD id</span><span>{selected.catnr}</span></div>
           <div className="row"><span>Latitude</span><span>{pos ? `${pos.lat.toFixed(2)}°` : "…"}</span></div>
           <div className="row"><span>Longitude</span><span>{pos ? `${pos.lon.toFixed(2)}°` : "…"}</span></div>
@@ -156,7 +230,7 @@ export default function App() {
       {loadError && <div className="banner">TLE provider unreachable</div>}
       {!loadError && (
         <div className="banner" style={{ background: "#111827" }}>
-          {sats.length}/{configCount} satellites loaded
+          {sats.length.toLocaleString()} satellites loaded · {visibleSats.length.toLocaleString()} shown
         </div>
       )}
     </div>
