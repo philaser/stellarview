@@ -136,11 +136,16 @@ export function createApp(
     }
     try {
       const tle = await tleCache.getOrLoad(catnr, async () => {
-        const upstream = await fetch(
-          `https://celestrak.org/NORAD/elements/gp.php?CATNR=${catnr}&FORMAT=tle`
+        const blocks = await Promise.all(
+          catnr.split(",").map(async (c) => {
+            const upstream = await fetch(
+              `https://celestrak.org/NORAD/elements/gp.php?CATNR=${c}&FORMAT=tle`
+            );
+            if (!upstream.ok) throw new Error(`CelesTrak responded ${upstream.status}`);
+            return await upstream.text();
+          })
         );
-        if (!upstream.ok) throw new Error(`CelesTrak responded ${upstream.status}`);
-        return await upstream.text();
+        return blocks.filter((b) => b.includes("\n2 ")).join("");
       });
       res.type("text/plain").send(tle);
     } catch {

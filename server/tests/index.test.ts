@@ -232,7 +232,28 @@ describe("GET /api/tle", () => {
     expect(res1.text).toContain("ISS (ZARYA)");
     const res2 = await request(app).get("/api/tle?catnr=25544,20580");
     expect(res2.status).toBe(200);
-    expect(fetch).toHaveBeenCalledTimes(1);
+    expect(fetch).toHaveBeenCalledTimes(2);
+    expect(String(vi.mocked(fetch).mock.calls[0][0])).toContain("CATNR=25544");
+    expect(String(vi.mocked(fetch).mock.calls[1][0])).toContain("CATNR=20580");
+    vi.unstubAllGlobals();
+  });
+
+  it("filters out upstream 'No GP data' responses", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((url: string) =>
+        Promise.resolve({
+          ok: true,
+          status: 200,
+          text: async () => (String(url).includes("99999") ? "No GP data found for: 99999\n" : tleBlock),
+        })
+      )
+    );
+    const app = createApp({ provider: okProvider });
+    const res = await request(app).get("/api/tle?catnr=25544,99999");
+    expect(res.status).toBe(200);
+    expect(res.text).toContain("ISS (ZARYA)");
+    expect(res.text).not.toContain("No GP data");
     vi.unstubAllGlobals();
   });
 
