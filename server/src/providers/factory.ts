@@ -1,5 +1,6 @@
 import { OpenSkyProvider } from "./opensky";
 import { TokenManager } from "./token";
+import { AirLabsProvider } from "./airlabs";
 import type { FlightProvider } from "./flight-provider";
 
 export function createProvider(env: NodeJS.ProcessEnv): FlightProvider {
@@ -7,7 +8,7 @@ export function createProvider(env: NodeJS.ProcessEnv): FlightProvider {
 
   if (provider === "airlabs") {
     if (!env.AIRLABS_API_KEY) throw new Error("AIRLABS_API_KEY is required when PROVIDER=airlabs");
-    throw new Error("AirLabs provider not yet implemented");
+    return new AirLabsProvider({ apiKey: env.AIRLABS_API_KEY });
   }
 
   if (provider !== "opensky") throw new Error(`Unknown provider: ${provider}`);
