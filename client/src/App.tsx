@@ -23,7 +23,7 @@ export default function App() {
     setStale(Boolean(body.stale));
   }, []);
 
-  const pollNow = useCallback(() => {
+  const pollOnce = useCallback(() => {
     const b = REGIONS[region].bounds;
     return fetch(`/api/flights?bbox=${b.join(",")}`)
       .then((res) => (res.ok ? res.json() : Promise.reject(new Error(`HTTP ${res.status}`))))
@@ -31,26 +31,23 @@ export default function App() {
       .catch(() => setStale(true));
   }, [region, applyResponse]);
 
+  const pollNow = useCallback(() => {
+    return pollOnce();
+  }, [pollOnce]);
+
   useEffect(() => {
     let cancelled = false;
     let timer: ReturnType<typeof setTimeout>;
 
-    const poll = async () => {
-      const b = REGIONS[region].bounds;
-      try {
-        const res = await fetch(`/api/flights?bbox=${b.join(",")}`);
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        const body = await res.json();
-        if (!cancelled) applyResponse(body);
-      } catch {
-        if (!cancelled) setStale(true);
-      }
-      if (!cancelled) timer = setTimeout(poll, 20_000);
+    const poll = () => {
+      void pollOnce().then(() => {
+        if (!cancelled) timer = setTimeout(poll, 20_000);
+      });
     };
 
     poll();
     const onVisibility = () => {
-      if (document.visibilityState === "visible") poll();
+      if (document.visibilityState === "visible") void pollOnce();
     };
     document.addEventListener("visibilitychange", onVisibility);
     return () => {
@@ -58,7 +55,7 @@ export default function App() {
       clearTimeout(timer);
       document.removeEventListener("visibilitychange", onVisibility);
     };
-  }, [region, applyResponse]);
+  }, [region, applyResponse, pollOnce]);
 
   const changeRegion = useCallback((key: string) => setRegion(key as keyof typeof REGIONS), []);
 

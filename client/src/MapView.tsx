@@ -48,16 +48,26 @@ export default function MapView({ bounds, flights, onSelect }: MapViewProps) {
   useEffect(() => {
     const map = mapRef.current;
     if (!map) return;
+    map.flyTo({
+      center: [(bounds[0] + bounds[2]) / 2, (bounds[1] + bounds[3]) / 2],
+      zoom: 4,
+      duration: 1000,
+    });
+  }, [bounds]);
 
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
+
+    const positioned = flights.filter(
+      (f): f is FlightState & { lat: number; lon: number } => f.lat !== null && f.lon !== null
+    );
     const featureCollection: GeoJSON.FeatureCollection = {
       type: "FeatureCollection",
-      features: flights.map((f) => ({
+      features: positioned.map((f) => ({
         type: "Feature",
         properties: { ...f },
-        geometry:
-          f.lat !== null && f.lon !== null
-            ? { type: "Point", coordinates: [f.lon, f.lat] }
-            : { type: "Point", coordinates: [0, 0] },
+        geometry: { type: "Point", coordinates: [f.lon, f.lat] },
       })),
     };
 

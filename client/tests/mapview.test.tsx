@@ -12,6 +12,7 @@ vi.mock("maplibre-gl", () => {
     getSource() {
       return undefined;
     }
+    flyTo() {}
   }
   return { default: MockMap, Map: MockMap };
 });
