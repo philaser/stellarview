@@ -17,3 +17,12 @@ npm run build:airports   # downloads OurAirports CSV, generates server/data/airp
 npm run dev              # server on :3001, client on :5173
 
 Optional env vars (server/.env): OPENSKY_USERNAME, OPENSKY_PASSWORD, AIRLABS_API_KEY, PROVIDER
+
+## Providers
+
+| PROVIDER value | Requires | Notes |
+|---|---|---|
+| `opensky` (default) | optional OPENSKY_USERNAME/PASSWORD | 4,000 cr/day registered vs 400 anonymous — register for free |
+| `airlabs` | AIRLABS_API_KEY | 1,000 req/mo free, reduced fields |
+
+Set PROVIDER / AIRLABS_API_KEY / OPENSKY_USERNAME / OPENSKY_PASSWORD in `server/.env`.
