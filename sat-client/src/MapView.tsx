@@ -203,15 +203,19 @@ export default function MapView({
     };
     if (!map.getSource("night")) {
       map.addSource("night", { type: "geojson", data: { type: "FeatureCollection", features: [feature] } });
-      map.addLayer(
-        {
-          id: "night-layer",
-          type: "fill",
-          source: "night",
-          paint: { "fill-color": "rgba(2, 6, 23, 0.35)", "fill-antialias": false },
-        },
-        "satellites-cluster-layer"
-      );
+      try {
+        map.addLayer(
+          {
+            id: "night-layer",
+            type: "fill",
+            source: "night",
+            paint: { "fill-color": "rgba(2, 6, 23, 0.35)", "fill-antialias": false },
+          },
+          "satellites-layer"
+        );
+      } catch (err) {
+        console.error("night layer add failed", err);
+      }
     } else {
       (map.getSource("night") as maplibregl.GeoJSONSource).setData({ type: "FeatureCollection", features: [feature] });
     }

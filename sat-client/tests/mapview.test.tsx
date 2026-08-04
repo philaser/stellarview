@@ -317,7 +317,7 @@ describe("MapView", () => {
     rerender(<MapView {...props} night={poly} />);
     const nightCall = addSourceMock.mock.calls.find((c) => c[0] === "night");
     expect(nightCall).toBeDefined();
-    expect(addLayerMock.mock.calls.some((c) => c[0].id === "night-layer" && c[1] === "satellites-cluster-layer")).toBe(true);
+    expect(addLayerMock.mock.calls.some((c) => c[0].id === "night-layer" && c[1] === "satellites-layer")).toBe(true);
   });
 
   it("removes the night overlay when the polygon is null", () => {
