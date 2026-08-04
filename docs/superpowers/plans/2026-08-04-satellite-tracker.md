@@ -41,7 +41,27 @@ describe("GET /api/tle", () => {
     expect(res1.text).toContain("ISS (ZARYA)");
     const res2 = await request(app).get("/api/tle?catnr=25544,20580");
     expect(res2.status).toBe(200);
-    expect(fetch).toHaveBeenCalledTimes(1);
+    // one upstream fetch PER catalog number (CelesTrak rejects comma-joined CATNR),
+    // and the cache serves the second request
+    expect(fetch).toHaveBeenCalledTimes(2);
+    vi.unstubAllGlobals();
+  });
+
+  it("filters out empty or 'No GP data found' upstream blocks", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockImplementation(async (url: string) => {
+        const body = url.includes("CATNR=99999")
+          ? "No GP data found for: 99999"
+          : tleBlock;
+        return { ok: true, status: 200, text: async () => body };
+      })
+    );
+    const app = createApp({ provider: okProvider });
+    const res = await request(app).get("/api/tle?catnr=25544,99999");
+    expect(res.status).toBe(200);
+    expect(res.text).toContain("ISS (ZARYA)");
+    expect(res.text).not.toContain("No GP data");
     vi.unstubAllGlobals();
   });
 
@@ -78,7 +98,7 @@ const TLE_CACHE_TTL_MS = 43_200_000; // 12h
   const tleCache = new TtlCache<string>(tleCacheTtlMs ?? TLE_CACHE_TTL_MS);
 ```
 
-4. Add the route after /api/track:
+4. Add the route after /api/track (CATNR split fix — CelesTrak rejects comma-joined CATNR with "not an integer"; verified live 2026-08-04. The proxy splits the validated list and fetches each catalog number individually, then concatenates the blocks, dropping empty/error texts):
 
 ```typescript
   app.get("/api/tle", async (req, res) => {
@@ -89,11 +109,18 @@ const TLE_CACHE_TTL_MS = 43_200_000; // 12h
     }
     try {
       const tle = await tleCache.getOrLoad(catnr, async () => {
-        const upstream = await fetch(
-          `https://celestrak.org/NORAD/elements/gp.php?CATNR=${catnr}&FORMAT=tle`
+        const blocks = await Promise.all(
+          catnr.split(",").map(async (c) => {
+            const upstream = await fetch(
+              `https://celestrak.org/NORAD/elements/gp.php?CATNR=${c}&FORMAT=tle`
+            );
+            if (!upstream.ok) throw new Error(`CelesTrak responded ${upstream.status}`);
+            return await upstream.text();
+          })
         );
-        if (!upstream.ok) throw new Error(`CelesTrak responded ${upstream.status}`);
-        return await upstream.text();
+        // keep only blocks that actually contain a TLE (a "2 " element line); "No GP data
+        // found" responses and empty bodies are dropped
+        return blocks.filter((b) => b.includes("\n2 ")).join("");
       });
       res.type("text/plain").send(tle);
     } catch {
@@ -101,6 +128,8 @@ const TLE_CACHE_TTL_MS = 43_200_000; // 12h
     }
   });
 ```
+
+NOTE: one upstream fetch per catalog number on cache miss (12 for the curated list ≈ 12 small requests per 12h — negligible). Cache key stays the joined catnr string.
 
 - [ ] **Step 4: Update `server/src/index.ts`** — add `tleCacheTtlMs: Number(process.env.TLE_CACHE_TTL_MS ?? 43_200_000),` to the createApp call.
 

@@ -33,8 +33,8 @@ Config shape: `{ catnr: number, category: "manned" | "science" | "comms" | "weat
 
 **`GET /api/tle?catnr=25544,20580,...`**
 - Validate `catnr`: comma-separated 1–5 digit numbers → else 400
-- Proxy to CelesTrak `gp.php?CATNR=<joined>&FORMAT=tle`
-- Cache response in-memory **12h TTL** (TtlCache, established pattern; `TLE_CACHE_TTL_MS` env, default 12h)
+- Proxy to CelesTrak `gp.php` — one request **per catalog number** (CelesTrak rejects comma-joined `CATNR` with "not an integer"; verified live 2026-08-04), blocks concatenated; empty/"No GP data found" responses dropped
+- Cache the combined result in-memory **12h TTL** (TtlCache, established pattern; `TLE_CACHE_TTL_MS` env, default 12h)
 - Non-ok upstream → 502 `{"error":"provider unreachable"}`; no stale-fallback needed (client re-fetches next load; TLE age is not critical)
 - Response: the raw TLE text block
 
