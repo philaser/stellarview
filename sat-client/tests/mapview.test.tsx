@@ -8,8 +8,6 @@ let moveHandler: (() => void) | null = null;
 let mockMousemoveHandler: ((e: unknown) => void) | null = null;
 let mockMouseleaveHandler: (() => void) | null = null;
 let clickHitsFeature = true;
-let clickReturnsCluster = false;
-let mockZoom = 4;
 let mockLngLat = { lng: 2.35, lat: 48.86 };
 const mockBounds = { west: 0, south: 0, east: 20, north: 20 };
 const mockCanvas = { style: {} as Record<string, string> };
@@ -18,7 +16,6 @@ const addLayerMock = vi.fn();
 const setDataMock = vi.fn();
 const easeToMock = vi.fn();
 const flyToMock = vi.fn();
-const setLayoutPropertyMock = vi.fn();
 const setFeatureStateMock = vi.fn();
 const setPaintPropertyMock = vi.fn();
 const removeLayerMock = vi.fn();
@@ -40,7 +37,6 @@ vi.mock("maplibre-gl", () => ({
     removeSource() {}
     getSource(name: string) { return addedSources.has(name) ? { setData: setDataMock } : undefined; }
     getLayer(name: string) { return addedLayers.has(name) ? {} : undefined; }
-    setLayoutProperty(...a: unknown[]) { setLayoutPropertyMock(...a); }
     setFeatureState(...a: unknown[]) { setFeatureStateMock(...a); }
     setPaintProperty(...a: unknown[]) { setPaintPropertyMock(...a); }
     getCanvas() { return mockCanvas; }
@@ -53,15 +49,10 @@ vi.mock("maplibre-gl", () => ({
       };
     }
     queryRenderedFeatures() {
-      return clickReturnsCluster
-        ? [{ properties: { point_count: 42 } }]
-        : clickHitsFeature
-          ? [{ properties: { catnr: 25544 } }]
-          : [];
+      return clickHitsFeature ? [{ properties: { catnr: 25544 } }] : [];
     }
     easeTo(...a: unknown[]) { easeToMock(...a); }
     flyTo(...a: unknown[]) { flyToMock(...a); }
-    getZoom() { return mockZoom; }
     remove() {}
   },
   Map: class {
@@ -78,7 +69,6 @@ vi.mock("maplibre-gl", () => ({
     removeSource() {}
     getSource(name: string) { return addedSources.has(name) ? { setData: setDataMock } : undefined; }
     getLayer(name: string) { return addedLayers.has(name) ? {} : undefined; }
-    setLayoutProperty(...a: unknown[]) { setLayoutPropertyMock(...a); }
     setFeatureState(...a: unknown[]) { setFeatureStateMock(...a); }
     setPaintProperty(...a: unknown[]) { setPaintPropertyMock(...a); }
     getCanvas() { return mockCanvas; }
@@ -91,15 +81,10 @@ vi.mock("maplibre-gl", () => ({
       };
     }
     queryRenderedFeatures() {
-      return clickReturnsCluster
-        ? [{ properties: { point_count: 42 } }]
-        : clickHitsFeature
-          ? [{ properties: { catnr: 25544 } }]
-          : [];
+      return clickHitsFeature ? [{ properties: { catnr: 25544 } }] : [];
     }
     easeTo(...a: unknown[]) { easeToMock(...a); }
     flyTo(...a: unknown[]) { flyToMock(...a); }
-    getZoom() { return mockZoom; }
     remove() {}
   },
 }));
@@ -112,8 +97,6 @@ describe("MapView", () => {
     mockMousemoveHandler = null;
     mockMouseleaveHandler = null;
     clickHitsFeature = true;
-    clickReturnsCluster = false;
-    mockZoom = 4;
     mockLngLat = { lng: 2.35, lat: 48.86 };
     mockCanvas.style = {};
     addSourceMock.mockClear();
@@ -121,7 +104,6 @@ describe("MapView", () => {
     setDataMock.mockClear();
     easeToMock.mockClear();
     flyToMock.mockClear();
-    setLayoutPropertyMock.mockClear();
     setFeatureStateMock.mockClear();
     setPaintPropertyMock.mockClear();
     removeLayerMock.mockClear();
@@ -144,14 +126,13 @@ describe("MapView", () => {
     night: null,
   };
 
-  it("adds the satellites, orbits, and clusters sources", () => {
+  it("adds the satellites and orbits sources", () => {
     render(<MapView {...props} />);
     act(() => {
       loadHandler!();
     });
     expect(addSourceMock).toHaveBeenCalledWith("satellites", expect.objectContaining({ type: "geojson" }));
     expect(addSourceMock).toHaveBeenCalledWith("orbits", expect.objectContaining({ type: "geojson" }));
-    expect(addSourceMock).toHaveBeenCalledWith("clusters", expect.objectContaining({ type: "geojson" }));
   });
 
   it("updates satellite positions via setData", () => {
@@ -186,7 +167,7 @@ describe("MapView", () => {
     expect(onSetObserver).toHaveBeenCalledWith(48.86, 2.35);
   });
 
-  it("uses data-driven radius and subtle stroke for satellite dots", () => {
+  it("uses a constant data-driven radius and subtle stroke for satellite dots", () => {
     render(<MapView {...props} />);
     act(() => {
       loadHandler!();
@@ -195,13 +176,12 @@ describe("MapView", () => {
     expect(layerCall).toBeDefined();
     const paint = layerCall![0].paint;
     expect(paint["circle-radius"]).toEqual([
-      "interpolate",
-      ["linear"],
-      ["zoom"],
+      "case",
+      ["boolean", ["feature-state", "hover"], false],
+      6,
+      ["get", "selected"],
       5,
-      ["case", ["boolean", ["feature-state", "hover"], false], 5, ["get", "selected"], 5, 2],
-      10,
-      ["case", ["boolean", ["feature-state", "hover"], false], 8, ["get", "selected"], 6, 3.5],
+      2,
     ]);
     expect(paint["circle-stroke-color"]).toEqual(["case", ["get", "selected"], "#ffffff", "rgba(15, 23, 42, 0.6)"]);
     expect(paint["circle-stroke-width"]).toEqual(["case", ["get", "selected"], 1.5, 0.5]);
@@ -259,53 +239,6 @@ describe("MapView", () => {
     expect(satCall![1]).not.toHaveProperty("cluster");
   });
 
-  it("adds a clusters source with point_count features plus a cluster layer and label", () => {
-    render(<MapView {...props} positions={[{ catnr: 1, lat: 45, lon: 2, altKm: 400 }]} />);
-    act(() => { loadHandler!(); });
-    const clusterSourceCall = addSourceMock.mock.calls.find((c) => c[0] === "clusters");
-    expect(clusterSourceCall).toBeDefined();
-    const data = clusterSourceCall![1].data;
-    expect(data.features.length).toBeGreaterThan(0);
-    expect(data.features[0].properties.point_count).toBe(1);
-    const ids = addLayerMock.mock.calls.map((c) => c[0].id);
-    expect(ids).toContain("clusters-layer");
-    expect(ids).toContain("clusters-label");
-  });
-
-  it("zooms into a cluster on cluster click instead of selecting", () => {
-    const onSelect = vi.fn();
-    clickReturnsCluster = true;
-    render(<MapView {...props} onSelect={onSelect} />);
-    capturedClick!({ point: { x: 0, y: 0 }, lngLat: { lng: 2.35, lat: 48.86 } });
-    expect(onSelect).not.toHaveBeenCalled();
-    expect(flyToMock).toHaveBeenCalledWith(expect.objectContaining({ zoom: 6 }));
-  });
-
-  it("shows clusters and hides dots below zoom 5", () => {
-    render(<MapView {...props} />);
-    act(() => { loadHandler!(); });
-    const satAdd = addLayerMock.mock.calls.find((c) => c[0].id === "satellites-layer");
-    expect(satAdd![0].layout.visibility).toBe("none");
-    const clusterAdd = addLayerMock.mock.calls.find((c) => c[0].id === "clusters-layer");
-    expect(clusterAdd![0].layout.visibility).toBe("visible");
-    mockZoom = 2;
-    act(() => { moveHandler!(); });
-    const calls = setLayoutPropertyMock.mock.calls;
-    expect(calls).toContainEqual(["satellites-layer", "visibility", "none"]);
-    expect(calls).toContainEqual(["clusters-layer", "visibility", "visible"]);
-    expect(calls).toContainEqual(["clusters-label", "visibility", "visible"]);
-  });
-
-  it("shows dots and hides clusters at zoom 5 and above", () => {
-    render(<MapView {...props} />);
-    act(() => { loadHandler!(); });
-    mockZoom = 6;
-    act(() => { moveHandler!(); });
-    const calls = setLayoutPropertyMock.mock.calls;
-    expect(calls).toContainEqual(["satellites-layer", "visibility", "visible"]);
-    expect(calls).toContainEqual(["clusters-layer", "visibility", "none"]);
-  });
-
   it("flies to the focused satellite's position", () => {
     const { rerender } = render(<MapView {...props} />);
     act(() => { loadHandler!(); });
@@ -319,18 +252,17 @@ describe("MapView", () => {
     expect(flyToMock).toHaveBeenCalledWith(expect.objectContaining({ center: [2, 45] }));
   });
 
-  it("uses zoom-interpolated dot radius", () => {
+  it("keeps a constant dot radius across zoom", () => {
     render(<MapView {...props} />);
     act(() => { loadHandler!(); });
     const layerCall = addLayerMock.mock.calls.find((c) => c[0].id === "satellites-layer");
     expect(layerCall![0].paint["circle-radius"]).toEqual([
-      "interpolate",
-      ["linear"],
-      ["zoom"],
+      "case",
+      ["boolean", ["feature-state", "hover"], false],
+      6,
+      ["get", "selected"],
       5,
-      ["case", ["boolean", ["feature-state", "hover"], false], 5, ["get", "selected"], 5, 2],
-      10,
-      ["case", ["boolean", ["feature-state", "hover"], false], 8, ["get", "selected"], 6, 3.5],
+      2,
     ]);
   });
 

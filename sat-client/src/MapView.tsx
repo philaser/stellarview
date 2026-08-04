@@ -1,6 +1,5 @@
 import { useEffect, useRef, useState } from "react";
 import maplibregl, { Map as MapLibreMap } from "maplibre-gl";
-import { bucketClusters } from "./sat/cluster";
 
 export interface SatDot {
   catnr: number;
@@ -37,7 +36,6 @@ export default function MapView({
   const mapRef = useRef<MapLibreMap | null>(null);
   const [styleLoaded, setStyleLoaded] = useState(false);
   const [mapBounds, setMapBounds] = useState<{ west: number; south: number; east: number; north: number } | null>(null);
-  const [mapZoom, setMapZoom] = useState(2);
   const onSelectRef = useRef(onSelect);
   const onSetObserverRef = useRef(onSetObserver);
   onSelectRef.current = onSelect;
@@ -55,17 +53,13 @@ export default function MapView({
     });
     map.on("click", (e) => {
       const features = map.queryRenderedFeatures(e.point, {
-        layers: ["clusters-layer", "satellites-layer"],
+        layers: ["satellites-layer"],
       });
       if (features.length === 0) {
         onSetObserverRef.current(e.lngLat.lat, e.lngLat.lng);
         return;
       }
       const props = features[0].properties ?? {};
-      if (props.point_count !== undefined) {
-        map.flyTo({ center: e.lngLat, zoom: map.getZoom() + 2, essential: true });
-        return;
-      }
       onSelectRef.current((props.catnr as number) ?? -1);
     });
     let hoveredId: number | null = null;
@@ -96,18 +90,6 @@ export default function MapView({
       if (mapRef.current !== map) return;
       const b = map.getBounds();
       setMapBounds({ west: b.getWest(), south: b.getSouth(), east: b.getEast(), north: b.getNorth() });
-      const zoom = map.getZoom();
-      setMapZoom(zoom);
-      const dotsVisible = zoom >= 5;
-      if (map.getLayer("satellites-layer")) {
-        map.setLayoutProperty("satellites-layer", "visibility", dotsVisible ? "visible" : "none");
-      }
-      if (map.getLayer("clusters-layer")) {
-        map.setLayoutProperty("clusters-layer", "visibility", dotsVisible ? "none" : "visible");
-      }
-      if (map.getLayer("clusters-label")) {
-        map.setLayoutProperty("clusters-label", "visibility", dotsVisible ? "none" : "visible");
-      }
     });
     mapRef.current = map;
     return () => map.remove();
@@ -141,16 +123,14 @@ export default function MapView({
         id: "satellites-layer",
         type: "circle",
         source: "satellites",
-        layout: { visibility: "none" },
         paint: {
           "circle-radius": [
-            "interpolate",
-            ["linear"],
-            ["zoom"],
+            "case",
+            ["boolean", ["feature-state", "hover"], false],
+            6,
+            ["get", "selected"],
             5,
-            ["case", ["boolean", ["feature-state", "hover"], false], 5, ["get", "selected"], 5, 2],
-            10,
-            ["case", ["boolean", ["feature-state", "hover"], false], 8, ["get", "selected"], 6, 3.5],
+            2,
           ],
           "circle-color": ["get", "color"],
           "circle-stroke-color": ["case", ["get", "selected"], "#ffffff", "rgba(15, 23, 42, 0.6)"],
@@ -166,51 +146,6 @@ export default function MapView({
     const map = mapRef.current;
     if (!map || !styleLoaded) return;
 
-    const clusters = bucketClusters(
-      positions.map((p) => ({ lon: p.lon, lat: p.lat })),
-      mapZoom
-    );
-    const features: GeoJSON.Feature[] = clusters.map((c) => ({
-      type: "Feature",
-      properties: { point_count: c.count },
-      geometry: { type: "Point", coordinates: [c.lon, c.lat] },
-    }));
-    const data: GeoJSON.FeatureCollection = { type: "FeatureCollection", features };
-
-    if (!map.getSource("clusters")) {
-      map.addSource("clusters", { type: "geojson", data });
-      map.addLayer({
-        id: "clusters-layer",
-        type: "circle",
-        source: "clusters",
-        layout: { visibility: "visible" },
-        paint: {
-          "circle-color": "#475569",
-          "circle-radius": ["interpolate", ["linear"], ["get", "point_count"], 0, 10, 200, 26],
-          "circle-stroke-color": "#f8fafc",
-          "circle-stroke-width": 1.5,
-        },
-      });
-      map.addLayer({
-        id: "clusters-label",
-        type: "symbol",
-        source: "clusters",
-        layout: {
-          "text-field": ["get", "point_count"],
-          "text-size": 11,
-          "text-font": ["Noto Sans Regular"],
-          visibility: "visible",
-        },
-        paint: { "text-color": "#ffffff" },
-      });
-    } else {
-      (map.getSource("clusters") as maplibregl.GeoJSONSource).setData(data);
-    }
-  }, [positions, mapZoom, styleLoaded]);
-
-  useEffect(() => {
-    const map = mapRef.current;
-    if (!map || !styleLoaded) return;
     const removeNight = () => {
       if (map.getLayer("night-layer")) {
         map.removeLayer("night-layer");
