@@ -509,8 +509,10 @@ export function buildGroundTrack(satrec: SatRec, points = 120): [number, number]
 
 - [ ] **Step 6: Write `sat-client/src/sat/passes.ts`**
 
+IMPORTANT (verified during Task 2): satellite.js v5.0.0 does NOT export `getPasses` (removed from the package). The plan's original approach is replaced with a hand-rolled pass finder using the exports that DO exist: `propagate`, `geodeticToEcf`, `ecfToLookAngles` (all verified present). Behavior contract unchanged: passes with start < peak < end, sorted by max elevation desc.
+
 ```typescript
-import { getPasses, type SatRec } from "satellite.js";
+import { propagate, geodeticToEcf, ecfToLookAngles, type SatRec } from "satellite.js";
 
 export interface ObserverPoint {
   lat: number;
@@ -529,27 +531,57 @@ export function nextPasses(
   satrec: SatRec,
   observer: ObserverPoint,
   hours = 48,
-  stepMinutes = 1
+  stepS = 60,
+  minElevationDeg = 5
 ): Pass[] {
-  const now = new Date();
-  const end = new Date(now.getTime() + hours * 3600_000);
-  const raw = getPasses(observer, satrec, now, end, stepMinutes) as Array<{
-    start: Date;
-    end: Date;
-    maxElevation: number;
-  }>;
-  return raw
-    .map((p) => ({
-      start: p.start,
-      peak: new Date((p.start.getTime() + p.end.getTime()) / 2),
-      end: p.end,
-      maxElevationDeg: p.maxElevation,
-    }))
-    .sort((a, b) => b.maxElevationDeg - a.maxElevationDeg);
+  const observerEcf = geodeticToEcf({
+    longitude: (observer.lon * Math.PI) / 180,
+    latitude: (observer.lat * Math.PI) / 180,
+    height: observer.heightM / 1000, // km
+  });
+  const now = Date.now();
+  const endMs = now + hours * 3600_000;
+  const steps = Math.ceil((endMs - now) / (stepS * 1000));
+
+  const elevations: { t: number; deg: number }[] = [];
+  for (let i = 0; i <= steps; i++) {
+    const t = now + i * stepS * 1000;
+    const pv = propagate(satrec, new Date(t));
+    const look = ecfToLookAngles(observerEcf, pv.position);
+    elevations.push({ t, deg: (look.elevation * 180) / Math.PI });
+  }
+
+  const passes: Pass[] = [];
+  let runStart: number | null = null;
+  let peak: { t: number; deg: number } | null = null;
+  for (const e of elevations) {
+    if (e.deg >= minElevationDeg) {
+      if (runStart === null) runStart = e.t;
+      if (!peak || e.deg > peak.deg) peak = e;
+    } else if (runStart !== null) {
+      passes.push({
+        start: new Date(runStart),
+        peak: new Date(peak!.t),
+        end: new Date(e.t),
+        maxElevationDeg: peak!.deg,
+      });
+      runStart = null;
+      peak = null;
+    }
+  }
+  if (runStart !== null) {
+    passes.push({
+      start: new Date(runStart),
+      peak: new Date(peak!.t),
+      end: new Date(endMs),
+      maxElevationDeg: peak!.deg,
+    });
+  }
+  return passes.sort((a, b) => b.maxElevationDeg - a.maxElevationDeg);
 }
 ```
 
-NOTE: the satellite.js `getPasses` signature is `getPasses(observer, satrec, startTime, endTime, stepSizeInMinutes)` and returns an array of passes each with `start`, `end`, `startLat`, `startLon`, `endLat`, `endLon`, `maxElevation`, `riseTime`, `setTime`. Verify the exact shape against the installed package's types (the peak estimate as the midpoint is an approximation — acceptable for v1; if the package exposes rise/set times, use those instead). The `observer` arg order is `(observer, satrec, ...)` — verify against the types; if reversed, fix and note it.
+Note: `geodeticToEcf` expects longitude/latitude in radians and height in km; `ecfToLookAngles` returns elevation in radians. Verify against the installed package types if anything type-errors. The test asserts `passes.length > 0` over 48h for ISS over Paris at the default 5° threshold — ISS clears Paris' horizon 2-3×/day, so this holds; if it flakily fails, lower the threshold to 0° and note it.
 
 - [ ] **Step 7: Run tests to verify they pass**
 

@@ -46,7 +46,7 @@ Vite + React + MapLibre GL — same stack/styling patterns as `client/`.
 - `tle.ts` — parse CelesTrak TLE text via `satellite.js` `parseTle`; extract name (line 0), period (from mean motion), inclination, catalog number
 - `propagate.ts` — `positionAt(satrec, date)` → `{ lat, lon, altKm }` via `satellite.js` `propagate` + `eciToGeodetic` + `degreesLat/Long`; `velocityKmPerS(satrec, date)` for speed display
 - `groundTrack.ts` — sample one full orbital period (~120 points) → `[lon, lat][]` for the orbit line
-- `passes.ts` — `nextPasses(satrec, { lat, lon }, hours=48)` via `satellite.js` `getPasses` → sorted by max elevation, each `{ start, peak, end, maxElevationDeg }`
+- `passes.ts` — `nextPasses(satrec, { lat, lon }, hours=48)` → passes sorted by max elevation, each `{ start, peak, end, maxElevationDeg }`. **Implementation note:** satellite.js v5 removed the `getPasses` helper, so the module steps propagation (60s) over the window and finds contiguous runs above the elevation threshold via `ecfToLookAngles` — hand-rolled ~40 lines, behavior contract unchanged
 
 **Components:**
 - `App.tsx` — on load: fetch `/api/tle?catnr=<joined config>`, parse all, kick off the 1s animation tick; manage selected sat, observer location (browser geolocation, fallback Paris), pass predictions
