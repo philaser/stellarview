@@ -27,6 +27,7 @@
 - TDD for logic-heavy code (proxy, providers, cache): failing test first, then implementation, then green.
 - Never commit secrets. `.env` is gitignored — document env vars in README instead.
 - API/data-source choices are researched and locked in the spec — do not re-litigate them during implementation.
+- **When the user shares an image/screenshot or asks me to view something visually, dispatch the `visual-inspector` subagent to inspect it and report back — never respond "I can't view images" or guess what an image contains.** The visual-inspector runs a vision-capable model and can read local file paths; give it the exact path and what to look for. This applies to screenshots the user attaches, screenshots in `/tmp`, and any request to "look at" the running app.
 
 ## Conventions
 
