@@ -3,7 +3,7 @@ import { parseBbox, Bbox } from "../src/bbox";
 
 describe("parseBbox", () => {
   it("accepts a valid bbox string", () => {
-    expect(parseBbox("-10,45,10,55")).toEqual({ minLon: -10, minLat: 45, maxLon: 10, maxLat: 55 });
+    expect(parseBbox("-10,35,30,60")).toEqual({ minLon: -10, minLat: 35, maxLon: 30, maxLat: 60 });
   });
 
   it("rejects non-numeric input", () => {

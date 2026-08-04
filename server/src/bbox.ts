@@ -5,7 +5,7 @@ export interface Bbox {
   maxLat: number;
 }
 
-export const MAX_BBOX_AREA_SQ_DEG = 400;
+export const MAX_BBOX_AREA_SQ_DEG = 62_000;
 
 export function parseBbox(input: string): Bbox {
   const parts = input.split(",").map((p) => Number(p));
