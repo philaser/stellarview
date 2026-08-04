@@ -21,3 +21,22 @@ export interface FlightsResponse {
   rateLimited: boolean;
   fetchedAt: number;
 }
+
+export interface TrackPoint {
+  t: number;
+  lat: number;
+  lon: number;
+  altBaro: number | null;
+}
+
+export interface FlightTrack {
+  icao24: string;
+  callsign: string | null;
+  points: TrackPoint[];
+}
+
+export interface TrackResponse {
+  track: FlightTrack | null;
+  stale: boolean;
+  rateLimited: boolean;
+}

@@ -1,6 +1,6 @@
 import type { Bbox } from "../bbox";
-import type { FlightState } from "../types";
-import type { FlightProvider } from "./flight-provider";
+import type { FlightState, FlightTrack } from "../types";
+import type { FlightProvider, TrackSource } from "./flight-provider";
 import type { TokenManager } from "./token";
 
 // OpenSky state vector array positions (documented in their REST API)
@@ -26,7 +26,7 @@ const IDX = {
 
 export const FRESH_POSITION_WINDOW_S = 60;
 
-export class OpenSkyProvider implements FlightProvider {
+export class OpenSkyProvider implements FlightProvider, TrackSource {
   name = "opensky";
 
   constructor(
@@ -84,6 +84,44 @@ export class OpenSkyProvider implements FlightProvider {
       positionSource: typeof s[IDX.positionSource] === "number" ? (s[IDX.positionSource] as number) : null,
       onGround: s[IDX.onGround] === true,
       lastContact: typeof s[IDX.lastContact] === "number" ? (s[IDX.lastContact] as number) : 0,
+    };
+  }
+
+  async fetchTrack(icao24: string, now: number): Promise<FlightTrack | null> {
+    const headers: Record<string, string> = { Accept: "application/json" };
+    if (this.tokenManager) {
+      headers.Authorization = `Bearer ${await this.tokenManager.getToken()}`;
+    }
+    const res = await fetch(`${this.opts.baseUrl}/tracks/${icao24}?time=${now}`, { headers });
+    if (res.status === 404) return null;
+    if (!res.ok) {
+      const error = new Error(`OpenSky responded ${res.status}`) as Error & {
+        status?: number;
+        retryAfter?: string | null;
+      };
+      error.status = res.status;
+      error.retryAfter = res.headers.get("X-Rate-Limit-Retry-After-Seconds");
+      throw error;
+    }
+    const body = (await res.json()) as {
+      icao24: string;
+      callsign: string | null;
+      path: unknown[];
+    };
+    const points = body.path
+      .filter((p) => Array.isArray(p))
+      .map((p) => p as (number | boolean | null)[])
+      .filter((p) => p.length >= 4)
+      .map((p) => ({
+        t: Number(p[0]),
+        lat: Number(p[1]),
+        lon: Number(p[2]),
+        altBaro: typeof p[3] === "number" ? p[3] : null,
+      }));
+    return {
+      icao24: body.icao24,
+      callsign: body.callsign ? body.callsign.trim() : null,
+      points,
     };
   }
 }
