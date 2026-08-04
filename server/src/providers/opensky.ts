@@ -1,6 +1,7 @@
 import type { Bbox } from "../bbox";
 import type { FlightState } from "../types";
 import type { FlightProvider } from "./flight-provider";
+import type { TokenManager } from "./token";
 
 // OpenSky state vector array positions (documented in their REST API)
 const IDX = {
@@ -28,7 +29,10 @@ export const FRESH_POSITION_WINDOW_S = 60;
 export class OpenSkyProvider implements FlightProvider {
   name = "opensky";
 
-  constructor(private opts: { baseUrl: string; token?: string | null }) {}
+  constructor(
+    private opts: { baseUrl: string },
+    private tokenManager: TokenManager | null = null
+  ) {}
 
   async fetchStates(bbox: Bbox): Promise<FlightState[]> {
     const params = new URLSearchParams({
@@ -38,15 +42,21 @@ export class OpenSkyProvider implements FlightProvider {
       lomax: String(bbox.maxLon),
     });
     const headers: Record<string, string> = { Accept: "application/json" };
-    if (this.opts.token) headers.Authorization = `Bearer ${this.opts.token}`;
-
+    if (this.tokenManager) {
+      headers.Authorization = `Bearer ${await this.tokenManager.getToken()}`;
+    }
     const res = await fetch(`${this.opts.baseUrl}/states/all?${params}`, { headers });
     if (!res.ok) {
-      throw new Error(`OpenSky responded ${res.status}`);
+      const error = new Error(`OpenSky responded ${res.status}`) as Error & {
+        status?: number;
+        retryAfter?: string | null;
+      };
+      error.status = res.status;
+      error.retryAfter = res.headers.get("X-Rate-Limit-Retry-After-Seconds");
+      throw error;
     }
     const body = (await res.json()) as { states: unknown[] };
     const now = Math.floor(Date.now() / 1000);
-
     return body.states
       .filter((s) => Array.isArray(s))
       .map((s) => s as (number | string | boolean | null)[])

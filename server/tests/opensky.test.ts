@@ -78,7 +78,7 @@ describe("OpenSkyProvider", () => {
   it("throws on non-ok responses", async () => {
     vi.stubGlobal(
       "fetch",
-      vi.fn().mockResolvedValue({ ok: false, status: 429, json: async () => ({}) })
+      vi.fn().mockResolvedValue({ ok: false, status: 429, headers: { get: () => null }, json: async () => ({}) })
     );
     const provider = new OpenSkyProvider({ baseUrl: "https://opensky-network.org/api" });
     await expect(
