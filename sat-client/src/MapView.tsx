@@ -47,6 +47,7 @@ export default function MapView({
       style: "https://tiles.openfreemap.org/styles/liberty",
       center: [0, 30],
       zoom: 2,
+      renderWorldCopies: false,
     });
     // dev/verification handle for the visual-check harness
     (window as { __ftMap?: MapLibreMap }).__ftMap = map;
