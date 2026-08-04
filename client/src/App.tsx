@@ -86,7 +86,9 @@ export default function App() {
     };
 
     void loadTrack();
-    const interval = setInterval(() => void loadTrack(), 60_000);
+    const interval = setInterval(() => {
+      if (document.visibilityState === "visible") void loadTrack();
+    }, 60_000);
     return () => {
       cancelled = true;
       clearInterval(interval);

@@ -3,6 +3,7 @@ import { act, fireEvent, render, screen } from "@testing-library/react";
 import App from "../src/App";
 
 let appClickHandler: ((e: unknown) => void) | null = null;
+let clickFeatureIcao = "a1b2c3";
 
 vi.mock("maplibre-gl", () => {
   class MockMap {
@@ -23,7 +24,7 @@ vi.mock("maplibre-gl", () => {
     }
     flyTo() {}
     queryRenderedFeatures() {
-      return [{ properties: { icao24: "a1b2c3", callsign: "UAL123" } }];
+      return [{ properties: { icao24: clickFeatureIcao, callsign: "UAL123" } }];
     }
   }
   return { default: MockMap, Map: MockMap };
@@ -34,6 +35,7 @@ const fetchMock = vi.fn();
 
 beforeEach(() => {
   appClickHandler = null;
+  clickFeatureIcao = "a1b2c3";
   vi.useFakeTimers();
   fetchMock.mockReset().mockResolvedValue({ ok: true, json: async () => response });
   vi.stubGlobal("fetch", fetchMock);
@@ -42,6 +44,7 @@ beforeEach(() => {
 afterEach(() => {
   vi.unstubAllGlobals();
   vi.useRealTimers();
+  Object.defineProperty(document, "visibilityState", { configurable: true, value: "visible" });
 });
 
 describe("App", () => {
@@ -129,10 +132,95 @@ describe("App", () => {
       appClickHandler!({ point: { x: 0, y: 0 } });
     });
     await act(async () => {});
-    const trackCalls = () => vi.mocked(fetch).mock.calls.filter((c) => String(c[0]).startsWith("/api/track")).length;
-    expect(trackCalls()).toBe(1);
+    const trackCalls = () => fetchMock.mock.calls.filter((c) => String(c[0]).startsWith("/api/track"));
+    expect(trackCalls()).toHaveLength(1);
     await act(async () => { vi.advanceTimersByTime(60_000); });
-    expect(trackCalls()).toBe(2);
+    expect(trackCalls()).toHaveLength(2);
+    expect(String(trackCalls()[1][0])).toContain("icao24=a1b2c3");
+  });
+
+  it("stops refreshing the track after Close", async () => {
+    fetchMock.mockResolvedValue({ ok: true, json: async () => trackResponse });
+    render(<App />);
+    await act(async () => {});
+    await act(async () => {
+      appClickHandler!({ point: { x: 0, y: 0 } });
+    });
+    await act(async () => {});
+    const trackCalls = () => fetchMock.mock.calls.filter((c) => String(c[0]).startsWith("/api/track")).length;
+    expect(trackCalls()).toBe(1);
+    fireEvent.click(screen.getByText("Close"));
+    await act(async () => { vi.advanceTimersByTime(60_000); });
+    expect(trackCalls()).toBe(1);
+  });
+
+  it("does not refresh the track while the tab is hidden", async () => {
+    fetchMock.mockResolvedValue({ ok: true, json: async () => trackResponse });
+    render(<App />);
+    await act(async () => {});
+    await act(async () => {
+      appClickHandler!({ point: { x: 0, y: 0 } });
+    });
+    await act(async () => {});
+    const trackCalls = () => fetchMock.mock.calls.filter((c) => String(c[0]).startsWith("/api/track")).length;
+    expect(trackCalls()).toBe(1);
+
+    Object.defineProperty(document, "visibilityState", { configurable: true, value: "hidden" });
+    await act(async () => { vi.advanceTimersByTime(60_000); });
+    expect(trackCalls()).toBe(1);
+  });
+
+  it("ignores a stale track response after switching planes", async () => {
+    const resolvers: Array<(v: unknown) => void> = [];
+    fetchMock.mockImplementation((url: string) =>
+      url.startsWith("/api/track")
+        ? new Promise((resolve) => resolvers.push(resolve))
+        : Promise.resolve({ ok: true, json: async () => response })
+    );
+    const trackA = {
+      ...trackResponse,
+      track: {
+        ...trackResponse.track,
+        icao24: "a1b2c3",
+        points: Array.from({ length: 99 }, (_, i) => ({ t: i, lat: 35, lon: -95, altBaro: 10000 })),
+      },
+    };
+    const trackB = {
+      ...trackResponse,
+      track: {
+        ...trackResponse.track,
+        icao24: "deadbe",
+        points: [
+          { t: 1, lat: 36, lon: -94, altBaro: 9000 },
+          { t: 2, lat: 36.1, lon: -94.1, altBaro: 9100 },
+        ],
+      },
+    };
+
+    clickFeatureIcao = "a1b2c3";
+    render(<App />);
+    await act(async () => {});
+    await act(async () => {
+      appClickHandler!({ point: { x: 0, y: 0 } });
+    });
+    await act(async () => {});
+    clickFeatureIcao = "deadbe";
+    await act(async () => {
+      appClickHandler!({ point: { x: 0, y: 0 } });
+    });
+    await act(async () => {});
+
+    resolvers[1]({ ok: true, json: async () => trackB }); // plane B's response lands first
+    await act(async () => {});
+    expect(screen.getByText("2 pts")).toBeInTheDocument();
+
+    resolvers[0]({ ok: true, json: async () => trackA }); // stale: plane A's response lands late
+    await act(async () => {});
+    expect(screen.queryByText("99 pts")).toBeNull();
+    expect(screen.getByText("2 pts")).toBeInTheDocument();
+
+    const lastTrackCall = fetchMock.mock.calls.filter((c) => String(c[0]).startsWith("/api/track")).at(-1);
+    expect(String(lastTrackCall?.[0])).toContain("icao24=deadbe");
   });
 
   it("shows Track unavailable and clears on close", async () => {
