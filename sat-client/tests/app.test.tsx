@@ -108,4 +108,11 @@ describe("App", () => {
     });
     expect(screen.getByText(/observer/i)).toBeInTheDocument();
   });
+
+  it("shows a banner when the TLE fetch fails", async () => {
+    vi.mocked(fetch).mockRejectedValueOnce(new Error("network"));
+    render(<App />);
+    await act(async () => {});
+    expect(screen.getByText("TLE provider unreachable")).toBeInTheDocument();
+  });
 });

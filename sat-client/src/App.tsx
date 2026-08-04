@@ -44,6 +44,7 @@ export default function App() {
 
   useEffect(() => {
     const interval = setInterval(() => {
+      if (sats.length === 0) return;
       const now = new Date();
       const next = sats
         .map((s): SatDot | null => {
