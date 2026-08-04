@@ -128,24 +128,50 @@ export function createApp(
     }
   });
 
+  const TLE_GROUPS = new Set(["active"]);
+
   app.get("/api/tle", async (req, res) => {
     const catnr = String(req.query.catnr ?? "");
-    if (!/^\d{1,5}(,\d{1,5}){0,49}$/.test(catnr)) {
-      res.status(400).json({ error: "invalid catnr" });
+    const group = String(req.query.group ?? "");
+    if ((catnr && group) || (!catnr && !group)) {
+      res.status(400).json({ error: "provide exactly one of catnr or group" });
+      return;
+    }
+    if (catnr) {
+      if (!/^\d{1,5}(,\d{1,5}){0,49}$/.test(catnr)) {
+        res.status(400).json({ error: "invalid catnr" });
+        return;
+      }
+      try {
+        const tle = await tleCache.getOrLoad(`catnr:${catnr}`, async () => {
+          const blocks = await Promise.all(
+            catnr.split(",").map(async (c) => {
+              const upstream = await fetch(
+                `https://celestrak.org/NORAD/elements/gp.php?CATNR=${c}&FORMAT=tle`
+              );
+              if (!upstream.ok) throw new Error(`CelesTrak responded ${upstream.status}`);
+              return await upstream.text();
+            })
+          );
+          return blocks.filter((b) => b.includes("\n2 ")).join("");
+        });
+        res.type("text/plain").send(tle);
+      } catch {
+        res.status(502).json({ error: "provider unreachable" });
+      }
+      return;
+    }
+    if (!TLE_GROUPS.has(group)) {
+      res.status(400).json({ error: `unsupported group: ${group}` });
       return;
     }
     try {
-      const tle = await tleCache.getOrLoad(catnr, async () => {
-        const blocks = await Promise.all(
-          catnr.split(",").map(async (c) => {
-            const upstream = await fetch(
-              `https://celestrak.org/NORAD/elements/gp.php?CATNR=${c}&FORMAT=tle`
-            );
-            if (!upstream.ok) throw new Error(`CelesTrak responded ${upstream.status}`);
-            return await upstream.text();
-          })
+      const tle = await tleCache.getOrLoad(`group:${group}`, async () => {
+        const upstream = await fetch(
+          `https://celestrak.org/NORAD/elements/gp.php?GROUP=${group}&FORMAT=tle`
         );
-        return blocks.filter((b) => b.includes("\n2 ")).join("");
+        if (!upstream.ok) throw new Error(`CelesTrak responded ${upstream.status}`);
+        return await upstream.text();
       });
       res.type("text/plain").send(tle);
     } catch {

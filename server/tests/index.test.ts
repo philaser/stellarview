@@ -264,4 +264,32 @@ describe("GET /api/tle", () => {
     expect(res.status).toBe(502);
     vi.unstubAllGlobals();
   });
+
+  it("fetches a CelesTrak GROUP bulk file and caches it", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({
+        ok: true,
+        status: 200,
+        text: async () => `ISS (ZARYA)\n1 25544U 98067A   14020.93268519  .00009878  00000-0  18200-3 0  5082\n2 25544  51.6498 109.4756 0003572  55.9686 274.4705 15.49815350830473\n`,
+      })
+    );
+    const app = createApp({ provider: okProvider });
+    const res1 = await request(app).get("/api/tle?group=active");
+    expect(res1.status).toBe(200);
+    expect(res1.text).toContain("ISS (ZARYA)");
+    expect(String(vi.mocked(fetch).mock.calls[0][0])).toContain("GROUP=active");
+    const res2 = await request(app).get("/api/tle?group=active");
+    expect(res2.status).toBe(200);
+    expect(fetch).toHaveBeenCalledTimes(1); // cached
+    vi.unstubAllGlobals();
+  });
+
+  it("rejects unknown groups and combined catnr+group", async () => {
+    const app = createApp({ provider: okProvider });
+    const res1 = await request(app).get("/api/tle?group=debris");
+    expect(res1.status).toBe(400);
+    const res2 = await request(app).get("/api/tle?catnr=25544&group=active");
+    expect(res2.status).toBe(400);
+  });
 });
