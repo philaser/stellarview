@@ -7,6 +7,7 @@ let loadHandler: (() => void) | null = null;
 let moveHandler: (() => void) | null = null;
 let clickHitsFeature = true;
 let clickReturnsCluster = false;
+let mockZoom = 4;
 let mockLngLat = { lng: 2.35, lat: 48.86 };
 const mockBounds = { west: 0, south: 0, east: 20, north: 20 };
 const addSourceMock = vi.fn();
@@ -14,7 +15,9 @@ const addLayerMock = vi.fn();
 const setDataMock = vi.fn();
 const easeToMock = vi.fn();
 const flyToMock = vi.fn();
+const setLayoutPropertyMock = vi.fn();
 const addedSources = new Set<string>();
+const addedLayers = new Set<string>();
 
 vi.mock("maplibre-gl", () => ({
   default: class {
@@ -24,11 +27,12 @@ vi.mock("maplibre-gl", () => ({
       if (evt === "move") moveHandler = cb as () => void;
     }
     addSource(...a: unknown[]) { addSourceMock(...a); addedSources.add(a[0] as string); }
-    addLayer(...a: unknown[]) { addLayerMock(...a); }
+    addLayer(...a: unknown[]) { addLayerMock(...a); addedLayers.add((a[0] as { id: string }).id); }
     removeLayer() {}
     removeSource() {}
     getSource(name: string) { return addedSources.has(name) ? { setData: setDataMock } : undefined; }
-    getLayer() { return undefined; }
+    getLayer(name: string) { return addedLayers.has(name) ? {} : undefined; }
+    setLayoutProperty(...a: unknown[]) { setLayoutPropertyMock(...a); }
     getBounds() {
       return {
         getWest: () => mockBounds.west,
@@ -46,7 +50,7 @@ vi.mock("maplibre-gl", () => ({
     }
     easeTo(...a: unknown[]) { easeToMock(...a); }
     flyTo(...a: unknown[]) { flyToMock(...a); }
-    getZoom() { return 4; }
+    getZoom() { return mockZoom; }
     remove() {}
   },
   Map: class {
@@ -56,11 +60,12 @@ vi.mock("maplibre-gl", () => ({
       if (evt === "move") moveHandler = cb as () => void;
     }
     addSource(...a: unknown[]) { addSourceMock(...a); addedSources.add(a[0] as string); }
-    addLayer(...a: unknown[]) { addLayerMock(...a); }
+    addLayer(...a: unknown[]) { addLayerMock(...a); addedLayers.add((a[0] as { id: string }).id); }
     removeLayer() {}
     removeSource() {}
     getSource(name: string) { return addedSources.has(name) ? { setData: setDataMock } : undefined; }
-    getLayer() { return undefined; }
+    getLayer(name: string) { return addedLayers.has(name) ? {} : undefined; }
+    setLayoutProperty(...a: unknown[]) { setLayoutPropertyMock(...a); }
     getBounds() {
       return {
         getWest: () => mockBounds.west,
@@ -78,7 +83,7 @@ vi.mock("maplibre-gl", () => ({
     }
     easeTo(...a: unknown[]) { easeToMock(...a); }
     flyTo(...a: unknown[]) { flyToMock(...a); }
-    getZoom() { return 4; }
+    getZoom() { return mockZoom; }
     remove() {}
   },
 }));
@@ -90,13 +95,16 @@ describe("MapView", () => {
     moveHandler = null;
     clickHitsFeature = true;
     clickReturnsCluster = false;
+    mockZoom = 4;
     mockLngLat = { lng: 2.35, lat: 48.86 };
     addSourceMock.mockClear();
     addLayerMock.mockClear();
     setDataMock.mockClear();
     easeToMock.mockClear();
     flyToMock.mockClear();
+    setLayoutPropertyMock.mockClear();
     addedSources.clear();
+    addedLayers.clear();
   });
 
   const props: MapViewProps = {
@@ -109,13 +117,14 @@ describe("MapView", () => {
     focus: null,
   };
 
-  it("adds the satellites and orbits sources", () => {
+  it("adds the satellites, orbits, and clusters sources", () => {
     render(<MapView {...props} />);
     act(() => {
       loadHandler!();
     });
     expect(addSourceMock).toHaveBeenCalledWith("satellites", expect.objectContaining({ type: "geojson" }));
     expect(addSourceMock).toHaveBeenCalledWith("orbits", expect.objectContaining({ type: "geojson" }));
+    expect(addSourceMock).toHaveBeenCalledWith("clusters", expect.objectContaining({ type: "geojson" }));
   });
 
   it("updates satellite positions via setData", () => {
@@ -126,8 +135,11 @@ describe("MapView", () => {
     rerender(
       <MapView {...props} positions={[{ catnr: 25544, lat: 45, lon: 2, altKm: 420 }]} />
     );
-    expect(setDataMock).toHaveBeenCalled();
-    const [data] = setDataMock.mock.calls.at(-1)!;
+    const satCalls = setDataMock.mock.calls.filter(([data]) =>
+      (data.features ?? []).some((f: { properties: { catnr?: number } }) => f.properties?.catnr !== undefined)
+    );
+    expect(satCalls).toHaveLength(1);
+    const [data] = satCalls[0];
     expect(data.features).toHaveLength(1);
     expect(data.features[0].properties.catnr).toBe(25544);
   });
@@ -203,25 +215,34 @@ describe("MapView", () => {
         ]}
       />
     );
-    const satCall = setDataMock.mock.calls.at(-1)!;
-    const features = satCall?.[0].features ?? [];
+    const satCalls = setDataMock.mock.calls.filter(([data]) =>
+      (data.features ?? []).some((f: { properties: { catnr?: number } }) => f.properties?.catnr !== undefined)
+    );
+    const satCall = satCalls.at(-1)!;
+    const features = satCall[0].features ?? [];
     expect(features.map((f: { properties: { catnr: number } }) => f.properties.catnr)).toEqual([1]);
   });
 
-  it("registers the satellites source with clustering enabled", () => {
+  it("registers the satellites source without MapLibre clustering", () => {
     render(<MapView {...props} />);
     act(() => { loadHandler!(); });
     const satCall = addSourceMock.mock.calls.find((c) => c[0] === "satellites");
     expect(satCall).toBeDefined();
-    expect(satCall![1]).toMatchObject({ type: "geojson", cluster: true, clusterRadius: 50 });
+    expect(satCall![1]).toMatchObject({ type: "geojson" });
+    expect(satCall![1]).not.toHaveProperty("cluster");
   });
 
-  it("adds a cluster layer and a cluster label layer", () => {
-    render(<MapView {...props} />);
+  it("adds a clusters source with point_count features plus a cluster layer and label", () => {
+    render(<MapView {...props} positions={[{ catnr: 1, lat: 45, lon: 2, altKm: 400 }]} />);
     act(() => { loadHandler!(); });
+    const clusterSourceCall = addSourceMock.mock.calls.find((c) => c[0] === "clusters");
+    expect(clusterSourceCall).toBeDefined();
+    const data = clusterSourceCall![1].data;
+    expect(data.features.length).toBeGreaterThan(0);
+    expect(data.features[0].properties.point_count).toBe(1);
     const ids = addLayerMock.mock.calls.map((c) => c[0].id);
-    expect(ids).toContain("satellites-cluster-layer");
-    expect(ids).toContain("satellites-cluster-label");
+    expect(ids).toContain("clusters-layer");
+    expect(ids).toContain("clusters-label");
   });
 
   it("zooms into a cluster on cluster click instead of selecting", () => {
@@ -230,7 +251,24 @@ describe("MapView", () => {
     render(<MapView {...props} onSelect={onSelect} />);
     capturedClick!({ point: { x: 0, y: 0 }, lngLat: { lng: 2.35, lat: 48.86 } });
     expect(onSelect).not.toHaveBeenCalled();
-    expect(flyToMock).toHaveBeenCalledWith(expect.objectContaining({ zoom: expect.any(Number) }));
+    expect(flyToMock).toHaveBeenCalledWith(expect.objectContaining({ zoom: 6 }));
+  });
+
+  it("shows dots and hides clusters below zoom 5", () => {
+    render(<MapView {...props} />);
+    act(() => { loadHandler!(); });
+    act(() => { moveHandler!(); }); // mockZoom 4 < 5
+    expect(setLayoutPropertyMock).toHaveBeenCalledWith("satellites-layer", "visibility", "visible");
+    expect(setLayoutPropertyMock).toHaveBeenCalledWith("clusters-layer", "visibility", "none");
+  });
+
+  it("hides dots and shows clusters at zoom 5 and above", () => {
+    mockZoom = 6;
+    render(<MapView {...props} />);
+    act(() => { loadHandler!(); });
+    act(() => { moveHandler!(); });
+    expect(setLayoutPropertyMock).toHaveBeenCalledWith("satellites-layer", "visibility", "none");
+    expect(setLayoutPropertyMock).toHaveBeenCalledWith("clusters-layer", "visibility", "visible");
   });
 
   it("flies to the focused satellite's position", () => {
