@@ -41,13 +41,14 @@ export default function App() {
 
     const poll = () => {
       void pollOnce().then(() => {
-        if (!cancelled) timer = setTimeout(poll, 20_000);
+        if (!cancelled && document.visibilityState === "visible") timer = setTimeout(poll, 20_000);
       });
     };
 
     poll();
     const onVisibility = () => {
       if (document.visibilityState === "visible") void pollOnce();
+      else clearTimeout(timer);
     };
     document.addEventListener("visibilitychange", onVisibility);
     return () => {
@@ -82,6 +83,9 @@ export default function App() {
           <div className="row"><span>Vertical rate</span><span>{selected.verticalRate ?? "—"} m/s</span></div>
           <div className="row"><span>On ground</span><span>{selected.onGround ? "yes" : "no"}</span></div>
           <div className="row"><span>Last contact</span><span>{new Date(selected.lastContact * 1000).toLocaleTimeString()}</span></div>
+          <div className="row"><span>Altitude (geo)</span><span>{selected.altitudeGeo ?? "—"} m</span></div>
+          <div className="row"><span>Squawk</span><span>{selected.squawk ?? "—"}</span></div>
+          <div className="row"><span>Position source</span><span>{selected.positionSource != null ? String(selected.positionSource) : "—"}</span></div>
           <button onClick={() => setSelected(null)}>Close</button>
         </div>
       )}

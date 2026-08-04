@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { act, render } from "@testing-library/react";
+import { act, fireEvent, render, screen } from "@testing-library/react";
 import App from "../src/App";
 
 vi.mock("maplibre-gl", () => {
@@ -61,5 +61,26 @@ describe("App", () => {
       vi.advanceTimersByTime(20_000);
     });
     expect(fetchMock).toHaveBeenCalledTimes(3);
+  });
+
+  it("region change triggers polling of the new bbox", async () => {
+    render(<App />);
+    await act(async () => {});
+
+    fireEvent.change(screen.getByRole("combobox"), { target: { value: "us" } });
+    await act(async () => {});
+
+    expect(fetchMock).toHaveBeenLastCalledWith(expect.stringContaining("bbox=-125,24,-66,50"));
+  });
+
+  it("rate-limited response shows banner", async () => {
+    fetchMock.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({ flights: [], stale: false, rateLimited: true, fetchedAt: Date.now() }),
+    });
+    render(<App />);
+    await act(async () => {});
+
+    expect(screen.getByText("Rate limited — showing cached data")).toBeInTheDocument();
   });
 });
