@@ -20,6 +20,7 @@ export interface MapViewProps {
   onSetObserver: (lat: number, lon: number) => void;
   followCatnr: number | null;
   focus?: { catnr: number; ts: number } | null;
+  night: [number, number][] | null;
 }
 
 export default function MapView({
@@ -30,6 +31,7 @@ export default function MapView({
   onSetObserver,
   followCatnr,
   focus,
+  night,
 }: MapViewProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<MapLibreMap | null>(null);
@@ -180,6 +182,40 @@ export default function MapView({
       (map.getSource("clusters") as maplibregl.GeoJSONSource).setData(data);
     }
   }, [positions, mapZoom, styleLoaded]);
+
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !styleLoaded) return;
+    const removeNight = () => {
+      if (map.getLayer("night-layer")) {
+        map.removeLayer("night-layer");
+        map.removeSource("night");
+      }
+    };
+    if (!night || night.length < 3) {
+      removeNight();
+      return;
+    }
+    const feature: GeoJSON.Feature = {
+      type: "Feature",
+      properties: {},
+      geometry: { type: "Polygon", coordinates: [night] },
+    };
+    if (!map.getSource("night")) {
+      map.addSource("night", { type: "geojson", data: { type: "FeatureCollection", features: [feature] } });
+      map.addLayer(
+        {
+          id: "night-layer",
+          type: "fill",
+          source: "night",
+          paint: { "fill-color": "rgba(2, 6, 23, 0.35)", "fill-antialias": false },
+        },
+        "satellites-cluster-layer"
+      );
+    } else {
+      (map.getSource("night") as maplibregl.GeoJSONSource).setData({ type: "FeatureCollection", features: [feature] });
+    }
+  }, [night, styleLoaded]);
 
   useEffect(() => {
     const map = mapRef.current;

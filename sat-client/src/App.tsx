@@ -13,6 +13,7 @@ import { positionAt } from "./sat/propagate";
 import { buildGroundTrack } from "./sat/groundTrack";
 import { nextPasses, type ObserverPoint, type Pass } from "./sat/passes";
 import { satelliteVisible } from "./sat/visibility";
+import { nightPolygon } from "./sat/terminator";
 
 const FALLBACK_OBSERVER: ObserverPoint = { lat: 48.8566, lon: 2.3522, heightM: 0 };
 
@@ -31,6 +32,15 @@ export default function App() {
   const [constellations, setConstellations] = useState<Set<Constellation>>(new Set(CONSTELLATIONS));
   const [search, setSearch] = useState("");
   const [focus, setFocus] = useState<{ catnr: number; ts: number } | null>(null);
+  const [night, setNight] = useState<[number, number][] | null>(null);
+  const [showNight, setShowNight] = useState(true);
+
+  useEffect(() => {
+    const update = () => setNight(nightPolygon(new Date()));
+    update();
+    const interval = setInterval(update, 60_000);
+    return () => clearInterval(interval);
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -189,6 +199,7 @@ export default function App() {
         onSetObserver={(lat, lon) => setObserver(normalizeObserver(lat, lon))}
         followCatnr={followCatnr}
         focus={focus}
+        night={showNight ? night : null}
       />
       <div className="controls">
         <div className="filter-group">
@@ -237,6 +248,15 @@ export default function App() {
           value={search}
           onChange={(e) => setSearch(e.target.value)}
         />
+        <label style={{ color: "#e5e7eb" }}>
+          <input
+            type="checkbox"
+            aria-label="Day/Night"
+            checked={showNight}
+            onChange={(e) => setShowNight(e.target.checked)}
+          />
+          Day/Night
+        </label>
         <button onClick={() => window.location.reload()}>Reload TLEs</button>
       </div>
       {searchResults.length > 0 && (

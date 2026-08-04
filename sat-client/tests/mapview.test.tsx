@@ -16,6 +16,7 @@ const setDataMock = vi.fn();
 const easeToMock = vi.fn();
 const flyToMock = vi.fn();
 const setLayoutPropertyMock = vi.fn();
+const removeLayerMock = vi.fn();
 const addedSources = new Set<string>();
 const addedLayers = new Set<string>();
 
@@ -28,7 +29,7 @@ vi.mock("maplibre-gl", () => ({
     }
     addSource(...a: unknown[]) { addSourceMock(...a); addedSources.add(a[0] as string); }
     addLayer(...a: unknown[]) { addLayerMock(...a); addedLayers.add((a[0] as { id: string }).id); }
-    removeLayer() {}
+    removeLayer(...a: unknown[]) { removeLayerMock(...a); }
     removeSource() {}
     getSource(name: string) { return addedSources.has(name) ? { setData: setDataMock } : undefined; }
     getLayer(name: string) { return addedLayers.has(name) ? {} : undefined; }
@@ -61,7 +62,7 @@ vi.mock("maplibre-gl", () => ({
     }
     addSource(...a: unknown[]) { addSourceMock(...a); addedSources.add(a[0] as string); }
     addLayer(...a: unknown[]) { addLayerMock(...a); addedLayers.add((a[0] as { id: string }).id); }
-    removeLayer() {}
+    removeLayer(...a: unknown[]) { removeLayerMock(...a); }
     removeSource() {}
     getSource(name: string) { return addedSources.has(name) ? { setData: setDataMock } : undefined; }
     getLayer(name: string) { return addedLayers.has(name) ? {} : undefined; }
@@ -103,6 +104,7 @@ describe("MapView", () => {
     easeToMock.mockClear();
     flyToMock.mockClear();
     setLayoutPropertyMock.mockClear();
+    removeLayerMock.mockClear();
     addedSources.clear();
     addedLayers.clear();
   });
@@ -115,6 +117,7 @@ describe("MapView", () => {
     onSetObserver: () => {},
     followCatnr: null,
     focus: null,
+    night: null,
   };
 
   it("adds the satellites, orbits, and clusters sources", () => {
@@ -305,5 +308,23 @@ describe("MapView", () => {
       10,
       ["case", ["get", "selected"], 14, 9],
     ]);
+  });
+
+  it("adds the night overlay layer when a polygon is provided", () => {
+    const poly: [number, number][] = [[-180, -85], [0, -85], [180, -85], [180, 85], [0, 85], [-180, 85], [-180, -85]];
+    const { rerender } = render(<MapView {...props} />);
+    act(() => { loadHandler!(); });
+    rerender(<MapView {...props} night={poly} />);
+    const nightCall = addSourceMock.mock.calls.find((c) => c[0] === "night");
+    expect(nightCall).toBeDefined();
+    expect(addLayerMock.mock.calls.some((c) => c[0].id === "night-layer" && c[1] === "satellites-cluster-layer")).toBe(true);
+  });
+
+  it("removes the night overlay when the polygon is null", () => {
+    const poly: [number, number][] = [[-180, -85], [0, -85], [180, -85], [180, 85], [0, 85], [-180, 85], [-180, -85]];
+    const { rerender } = render(<MapView {...props} night={poly} />);
+    act(() => { loadHandler!(); });
+    rerender(<MapView {...props} night={null} />);
+    expect(removeLayerMock).toHaveBeenCalledWith("night-layer");
   });
 });

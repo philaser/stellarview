@@ -265,4 +265,13 @@ describe("App", () => {
     });
     expect(screen.getByText(/Observer: 48\.86, -66\.22/)).toBeInTheDocument();
   });
+
+  it("toggles the day/night overlay", async () => {
+    render(<App />);
+    await act(async () => {});
+    const cb = screen.getByLabelText("Day/Night");
+    expect(cb).toBeChecked();
+    fireEvent.click(cb);
+    expect(cb).not.toBeChecked();
+  });
 });
