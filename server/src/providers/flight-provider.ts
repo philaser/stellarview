@@ -7,5 +7,5 @@ export interface FlightProvider {
 }
 
 export interface TrackSource {
-  fetchTrack(icao24: string, now: number): Promise<FlightTrack | null>;
+  fetchTrack(icao24: string): Promise<FlightTrack | null>;
 }

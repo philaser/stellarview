@@ -105,7 +105,7 @@ describe("OpenSkyProvider.fetchTrack", () => {
       vi.fn().mockResolvedValue({ ok: true, status: 200, json: async () => trackBody })
     );
     const provider = new OpenSkyProvider({ baseUrl: "https://opensky-network.org/api" });
-    const track = await provider.fetchTrack("a1b2c3", 1754303600);
+    const track = await provider.fetchTrack("a1b2c3");
     expect(track).not.toBeNull();
     expect(track?.callsign).toBe("UAL123");
     expect(track?.points).toHaveLength(2);
@@ -119,7 +119,7 @@ describe("OpenSkyProvider.fetchTrack", () => {
       vi.fn().mockResolvedValue({ ok: false, status: 404, json: async () => ({}) })
     );
     const provider = new OpenSkyProvider({ baseUrl: "https://opensky-network.org/api" });
-    expect(await provider.fetchTrack("a1b2c3", 1754303600)).toBeNull();
+    expect(await provider.fetchTrack("a1b2c3")).toBeNull();
   });
 
   it("throws with status on other non-ok responses", async () => {
@@ -128,18 +128,19 @@ describe("OpenSkyProvider.fetchTrack", () => {
       vi.fn().mockResolvedValue({ ok: false, status: 429, headers: { get: () => null }, json: async () => ({}) })
     );
     const provider = new OpenSkyProvider({ baseUrl: "https://opensky-network.org/api" });
-    await expect(provider.fetchTrack("a1b2c3", 1754303600)).rejects.toThrow("429");
+    await expect(provider.fetchTrack("a1b2c3")).rejects.toThrow("429");
   });
 
-  it("requests the track endpoint with the current time", async () => {
+  it("requests the live track endpoint with icao24 and time=0", async () => {
     vi.stubGlobal(
       "fetch",
       vi.fn().mockResolvedValue({ ok: true, status: 200, json: async () => trackBody })
     );
     const provider = new OpenSkyProvider({ baseUrl: "https://opensky-network.org/api" });
-    await provider.fetchTrack("a1b2c3", 1754303600);
+    await provider.fetchTrack("a1b2c3");
     const url = String(vi.mocked(fetch).mock.calls[0][0]);
-    expect(url).toContain("/tracks/a1b2c3");
-    expect(url).toContain("time=1754303600");
+    expect(url).toContain("/tracks/all");
+    expect(url).toContain("icao24=a1b2c3");
+    expect(url).toContain("time=0");
   });
 });

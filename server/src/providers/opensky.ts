@@ -87,12 +87,12 @@ export class OpenSkyProvider implements FlightProvider, TrackSource {
     };
   }
 
-  async fetchTrack(icao24: string, now: number): Promise<FlightTrack | null> {
+  async fetchTrack(icao24: string): Promise<FlightTrack | null> {
     const headers: Record<string, string> = { Accept: "application/json" };
     if (this.tokenManager) {
       headers.Authorization = `Bearer ${await this.tokenManager.getToken()}`;
     }
-    const res = await fetch(`${this.opts.baseUrl}/tracks/${icao24}?time=${now}`, { headers });
+    const res = await fetch(`${this.opts.baseUrl}/tracks/all?icao24=${icao24}&time=0`, { headers });
     if (res.status === 404) return null;
     if (!res.ok) {
       const error = new Error(`OpenSky responded ${res.status}`) as Error & {

@@ -110,9 +110,7 @@ export function createApp(
 
     let rateLimited = false;
     try {
-      const track = await trackCache.getOrLoad(icao24, () =>
-        fetchTrack(icao24, Math.floor(Date.now() / 1000))
-      );
+      const track = await trackCache.getOrLoad(icao24, () => fetchTrack(icao24));
       const body: TrackResponse = { track, stale: false, rateLimited };
       res.json(body);
     } catch (err) {
