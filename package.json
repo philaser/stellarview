@@ -1,7 +1,11 @@
 {
   "name": "flight-tracker",
   "private": true,
-  "workspaces": ["server", "client", "sat-client"],
+  "workspaces": [
+    "server",
+    "client",
+    "sat-client"
+  ],
   "scripts": {
     "dev": "npm-run-all --parallel dev:server dev:client",
     "dev:sat": "npm-run-all --parallel dev:server dev:sat-client",
@@ -13,6 +17,7 @@
   },
   "devDependencies": {
     "npm-run-all": "^4.1.5",
+    "playwright": "^1.62.1",
     "tsx": "^4.19.0",
     "typescript": "^5.5.0"
   }

@@ -48,6 +48,8 @@ export default function MapView({
       center: [0, 30],
       zoom: 2,
     });
+    // dev/verification handle for the visual-check harness
+    (window as { __ftMap?: MapLibreMap }).__ftMap = map;
     map.on("load", () => {
       if (mapRef.current === map) setStyleLoaded(true);
     });
