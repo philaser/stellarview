@@ -14,7 +14,6 @@ interface AirportRecord {
   lon: number;
   elevationFt: number | null;
   type: string;
-  tz: string | null;
 }
 
 async function main() {
@@ -39,7 +38,6 @@ async function main() {
       lon: Number(row[idx.longitude_deg]),
       elevationFt: row[idx.elevation_ft] ? Number(row[idx.elevation_ft]) : null,
       type,
-      tz: row[idx.timezone] || null,
     });
   }
 
