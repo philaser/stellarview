@@ -24,6 +24,9 @@ html, body, #root { height: 100%; margin: 0; }
   flex-direction: column;
   gap: 8px;
   z-index: 10;
+  background: rgba(17, 24, 39, 0.92);
+  border-radius: 8px;
+  padding: 10px;
 }
 .controls select, .controls button {
   background: rgba(17, 24, 39, 0.92);
@@ -80,3 +83,19 @@ html, body, #root { height: 100%; margin: 0; }
   padding: 6px 10px;
   font: 13px system-ui, sans-serif;
 }
+.filter-group { display: flex; flex-direction: column; gap: 4px; }
+.filter-group-header {
+  display: flex; align-items: center; gap: 6px;
+  color: #9ca3af; font: 12px system-ui, sans-serif;
+}
+.filter-group-header button {
+  background: none; border: none; color: #60a5fa;
+  font: 11px system-ui, sans-serif; cursor: pointer; padding: 0;
+}
+.results-list { top: 180px; left: 12px; width: 280px; max-height: 300px; overflow-y: auto; }
+.result-row {
+  display: block; width: 100%; text-align: left;
+  background: none; border: none; color: #e5e7eb;
+  font: 12px system-ui, sans-serif; padding: 4px 0; cursor: pointer;
+}
+.result-row:hover { color: #60a5fa; }

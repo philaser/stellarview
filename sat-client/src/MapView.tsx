@@ -200,11 +200,14 @@ export default function MapView({
     map.easeTo({ center: [target.lon, target.lat], duration: 500, essential: true });
   }, [positions, followCatnr, styleLoaded]);
 
+  const handledFocusTsRef = useRef(0);
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !focus || !styleLoaded) return;
+    if (focus.ts === handledFocusTsRef.current) return;
     const target = positions.find((p) => p.catnr === focus.catnr);
     if (!target) return;
+    handledFocusTsRef.current = focus.ts;
     map.flyTo({ center: [target.lon, target.lat], zoom: 6, essential: true });
   }, [focus, positions, styleLoaded]);
 

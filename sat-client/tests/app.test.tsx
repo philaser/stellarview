@@ -223,4 +223,46 @@ describe("App", () => {
     await act(async () => {});
     expect(screen.queryByText("ISS (ZARYA)")).not.toBeInTheDocument();
   });
+
+  it("shows per-filter counts in the checkbox labels", async () => {
+    render(<App />);
+    await act(async () => {});
+    expect(screen.getByText("LEO (2)")).toBeInTheDocument();
+    expect(screen.getByText("GEO (1)")).toBeInTheDocument();
+    expect(screen.getByText("starlink (1)")).toBeInTheDocument();
+  });
+
+  it("toggles all regimes off and back on via the None/All shortcuts", async () => {
+    render(<App />);
+    await act(async () => {});
+    await act(async () => { loadHandler!(); });
+    fireEvent.click(screen.getByRole("button", { name: /regimes: none/i }));
+    await act(async () => { vi.advanceTimersByTime(2000); });
+    const dots = setDataMock.mock.calls.filter((c) => c[0] === "satellites").at(-1)?.[1].features ?? [];
+    expect(dots).toHaveLength(0);
+    fireEvent.click(screen.getByRole("button", { name: /regimes: all/i }));
+    await act(async () => { vi.advanceTimersByTime(2000); });
+    const dots2 = setDataMock.mock.calls.filter((c) => c[0] === "satellites").at(-1)?.[1].features ?? [];
+    expect(dots2.length).toBeGreaterThan(0);
+  });
+
+  it("lists search results and selects on click", async () => {
+    render(<App />);
+    await act(async () => {});
+    fireEvent.change(screen.getByPlaceholderText(/search/i), { target: { value: "ISS" } });
+    await act(async () => {});
+    fireEvent.click(screen.getAllByText(/ISS \(ZARYA\)/)[0]); // results list item
+    await act(async () => {});
+    expect(screen.getAllByText(/ISS \(ZARYA\)/).length).toBeGreaterThanOrEqual(2); // results item + panel title
+  });
+
+  it("wraps the observer longitude into ±180", async () => {
+    render(<App />);
+    await act(async () => {});
+    clickHitsFeature = false;
+    await act(async () => {
+      capturedClick!({ lngLat: { lng: 293.78, lat: 48.86 } });
+    });
+    expect(screen.getByText(/Observer: 48\.86, -66\.22/)).toBeInTheDocument();
+  });
 });

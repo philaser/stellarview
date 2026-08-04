@@ -30,6 +30,7 @@ export default function App() {
   const [regimes, setRegimes] = useState<Set<Regime>>(new Set(["leo", "meo", "geo"]));
   const [constellations, setConstellations] = useState<Set<Constellation>>(new Set(CONSTELLATIONS));
   const [search, setSearch] = useState("");
+  const [focus, setFocus] = useState<{ catnr: number; ts: number } | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -59,6 +60,26 @@ export default function App() {
         (q === "" || s.name.toLowerCase().includes(q) || String(s.catnr).includes(q))
     );
   }, [sats, regimes, constellations, search]);
+
+  const regimeCounts = useMemo(() => {
+    const counts: Record<Regime, number> = { leo: 0, meo: 0, geo: 0 };
+    for (const s of sats) counts[s.regime] += 1;
+    return counts;
+  }, [sats]);
+
+  const constellationCounts = useMemo(() => {
+    const counts: Record<Constellation, number> = { starlink: 0, oneweb: 0, gps: 0, iridium: 0, other: 0 };
+    for (const s of sats) counts[s.constellation] += 1;
+    return counts;
+  }, [sats]);
+
+  const searchResults = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    if (q === "") return [];
+    return sats
+      .filter((s) => s.name.toLowerCase().includes(q) || String(s.catnr).includes(q))
+      .slice(0, 20);
+  }, [sats, search]);
 
   // Orbit data for the selected satellite only (ground tracks for the whole ~16k catalog would be prohibitive).
   useEffect(() => {
@@ -108,7 +129,7 @@ export default function App() {
       return;
     }
     navigator.geolocation.getCurrentPosition(
-      (pos) => setObserver({ lat: pos.coords.latitude, lon: pos.coords.longitude, heightM: 0 }),
+      (pos) => setObserver(normalizeObserver(pos.coords.latitude, pos.coords.longitude)),
       () => setObserver(FALLBACK_OBSERVER)
     );
   }, []);
@@ -146,6 +167,17 @@ export default function App() {
       else next.add(c);
       return next;
     });
+  const setAllRegimes = (on: boolean) => setRegimes(new Set(on ? (["leo", "meo", "geo"] as Regime[]) : []));
+  const setAllConstellations = (on: boolean) => setConstellations(new Set(on ? CONSTELLATIONS : []));
+  const selectFromResults = (catnr: number) => {
+    setSelectedCatnr(catnr);
+    setFocus({ catnr, ts: Date.now() });
+  };
+  const normalizeObserver = (lat: number, lon: number): ObserverPoint => ({
+    lat,
+    lon: ((lon + 180) % 360 + 360) % 360 - 180,
+    heightM: 0,
+  });
 
   return (
     <div className="app">
@@ -154,35 +186,50 @@ export default function App() {
         orbits={selected && orbits[selected.catnr] ? { [selected.catnr]: orbits[selected.catnr] } : {}}
         observer={observer ? { lat: observer.lat, lon: observer.lon } : null}
         onSelect={setSelectedCatnr}
-        onSetObserver={(lat, lon) => setObserver({ lat, lon, heightM: 0 })}
+        onSetObserver={(lat, lon) => setObserver(normalizeObserver(lat, lon))}
         followCatnr={followCatnr}
+        focus={focus}
       />
       <div className="controls">
-        <div className="filter-row">
-          {(["leo", "meo", "geo"] as Regime[]).map((r) => (
-            <label key={r} style={{ color: REGIME_COLORS[r] }}>
-              <input
-                type="checkbox"
-                aria-label={r.toUpperCase()}
-                checked={regimes.has(r)}
-                onChange={() => toggleRegime(r)}
-              />
-              {r.toUpperCase()}
-            </label>
-          ))}
+        <div className="filter-group">
+          <div className="filter-group-header">
+            <span>Regime</span>
+            <button aria-label="Regimes: All" onClick={() => setAllRegimes(true)}>All</button>
+            <button aria-label="Regimes: None" onClick={() => setAllRegimes(false)}>None</button>
+          </div>
+          <div className="filter-row">
+            {(["leo", "meo", "geo"] as Regime[]).map((r) => (
+              <label key={r} style={{ color: REGIME_COLORS[r] }}>
+                <input
+                  type="checkbox"
+                  aria-label={r.toUpperCase()}
+                  checked={regimes.has(r)}
+                  onChange={() => toggleRegime(r)}
+                />
+                {r.toUpperCase()} ({regimeCounts[r]})
+              </label>
+            ))}
+          </div>
         </div>
-        <div className="filter-row">
-          {CONSTELLATIONS.map((c) => (
-            <label key={c} style={{ textTransform: "capitalize" }}>
-              <input
-                type="checkbox"
-                aria-label={c}
-                checked={constellations.has(c)}
-                onChange={() => toggleConstellation(c)}
-              />
-              {c}
-            </label>
-          ))}
+        <div className="filter-group">
+          <div className="filter-group-header">
+            <span>Constellation</span>
+            <button aria-label="Constellations: All" onClick={() => setAllConstellations(true)}>All</button>
+            <button aria-label="Constellations: None" onClick={() => setAllConstellations(false)}>None</button>
+          </div>
+          <div className="filter-row">
+            {CONSTELLATIONS.map((c) => (
+              <label key={c} style={{ textTransform: "capitalize" }}>
+                <input
+                  type="checkbox"
+                  aria-label={c}
+                  checked={constellations.has(c)}
+                  onChange={() => toggleConstellation(c)}
+                />
+                {c} ({constellationCounts[c]})
+              </label>
+            ))}
+          </div>
         </div>
         <input
           type="text"
@@ -192,6 +239,17 @@ export default function App() {
         />
         <button onClick={() => window.location.reload()}>Reload TLEs</button>
       </div>
+      {searchResults.length > 0 && (
+        <div className="panel results-list">
+          <h2>Results</h2>
+          {searchResults.map((s) => (
+            <button key={s.catnr} className="result-row" onClick={() => selectFromResults(s.catnr)}>
+              {s.name} · {s.catnr}
+            </button>
+          ))}
+          {searchResults.length === 20 && <div className="row"><span>… and more</span></div>}
+        </div>
+      )}
       {selected && observer && (
         <div className="panel">
           <h2>{selected.name}</h2>
