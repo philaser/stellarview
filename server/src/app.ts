@@ -12,6 +12,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 const DEFAULT_CACHE_TTL_MS = 15_000;
 const TRACK_CACHE_TTL_MS = 120_000;
+const TLE_CACHE_TTL_MS = 43_200_000; // 12h
 const DEFAULT_LAST_GOOD_TTL_MS = 60_000;
 const MAX_LAST_GOOD_KEYS = 100;
 
@@ -25,14 +26,16 @@ export interface CreateAppDeps {
   provider?: FlightProvider;
   cacheTtlMs?: number;
   trackCacheTtlMs?: number;
+  tleCacheTtlMs?: number;
 }
 
 export function createApp(
-  { provider, cacheTtlMs, trackCacheTtlMs }: CreateAppDeps = {}
+  { provider, cacheTtlMs, trackCacheTtlMs, tleCacheTtlMs }: CreateAppDeps = {}
 ) {
   const providerInstance = provider ?? createProvider(process.env);
   const cache = new TtlCache<FlightState[]>(cacheTtlMs ?? DEFAULT_CACHE_TTL_MS);
   const trackCache = new TtlCache<FlightTrack | null>(trackCacheTtlMs ?? TRACK_CACHE_TTL_MS);
+  const tleCache = new TtlCache<string>(tleCacheTtlMs ?? TLE_CACHE_TTL_MS);
   // The fallback must outlive the hot cache, or it is already expired the moment the primary fails.
   const lastGoodTtlMs = Math.max(cacheTtlMs ?? DEFAULT_CACHE_TTL_MS, DEFAULT_LAST_GOOD_TTL_MS);
   const lastGood = new Map<string, LastGoodEntry>();
@@ -122,6 +125,26 @@ export function createApp(
       } else {
         res.status(502).json({ error: "provider unreachable", rateLimited });
       }
+    }
+  });
+
+  app.get("/api/tle", async (req, res) => {
+    const catnr = String(req.query.catnr ?? "");
+    if (!/^\d{1,5}(,\d{1,5}){0,49}$/.test(catnr)) {
+      res.status(400).json({ error: "invalid catnr" });
+      return;
+    }
+    try {
+      const tle = await tleCache.getOrLoad(catnr, async () => {
+        const upstream = await fetch(
+          `https://celestrak.org/NORAD/elements/gp.php?CATNR=${catnr}&FORMAT=tle`
+        );
+        if (!upstream.ok) throw new Error(`CelesTrak responded ${upstream.status}`);
+        return await upstream.text();
+      });
+      res.type("text/plain").send(tle);
+    } catch {
+      res.status(502).json({ error: "provider unreachable" });
     }
   });
 

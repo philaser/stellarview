@@ -212,3 +212,35 @@ describe("GET /api/track", () => {
     expect(res.status).toBe(501);
   });
 });
+
+describe("GET /api/tle", () => {
+  const tleBlock = `ISS (ZARYA)\n1 25544U 98067A   14020.93268519  .00009878  00000-0  18200-3 0  5082\n2 25544  51.6498 109.4756 0003572  55.9686 274.4705 15.49815350830473\n`;
+
+  it("returns 400 for an invalid catnr", async () => {
+    const app = createApp({ provider: okProvider });
+    const res = await request(app).get("/api/tle?catnr=abc");
+    expect(res.status).toBe(400);
+    const res2 = await request(app).get("/api/tle?catnr=25544,,20580");
+    expect(res2.status).toBe(400);
+  });
+
+  it("proxies the TLE text and caches within TTL", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: true, status: 200, text: async () => tleBlock }));
+    const app = createApp({ provider: okProvider });
+    const res1 = await request(app).get("/api/tle?catnr=25544,20580");
+    expect(res1.status).toBe(200);
+    expect(res1.text).toContain("ISS (ZARYA)");
+    const res2 = await request(app).get("/api/tle?catnr=25544,20580");
+    expect(res2.status).toBe(200);
+    expect(fetch).toHaveBeenCalledTimes(1);
+    vi.unstubAllGlobals();
+  });
+
+  it("returns 502 when CelesTrak is unreachable", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: false, status: 500, text: async () => "" }));
+    const app = createApp({ provider: okProvider });
+    const res = await request(app).get("/api/tle?catnr=25544");
+    expect(res.status).toBe(502);
+    vi.unstubAllGlobals();
+  });
+});
