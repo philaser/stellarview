@@ -18,6 +18,7 @@ export interface MapViewProps {
   onSelect: (catnr: number) => void;
   onSetObserver: (lat: number, lon: number) => void;
   followCatnr: number | null;
+  focus?: { catnr: number; ts: number } | null;
 }
 
 export default function MapView({
@@ -27,6 +28,7 @@ export default function MapView({
   onSelect,
   onSetObserver,
   followCatnr,
+  focus,
 }: MapViewProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<MapLibreMap | null>(null);
@@ -48,12 +50,19 @@ export default function MapView({
       if (mapRef.current === map) setStyleLoaded(true);
     });
     map.on("click", (e) => {
-      const features = map.queryRenderedFeatures(e.point, { layers: ["satellites-layer"] });
-      if (features.length > 0) {
-        onSelectRef.current((features[0].properties?.catnr as number) ?? -1);
-      } else {
+      const features = map.queryRenderedFeatures(e.point, {
+        layers: ["satellites-cluster-layer", "satellites-layer"],
+      });
+      if (features.length === 0) {
         onSetObserverRef.current(e.lngLat.lat, e.lngLat.lng);
+        return;
       }
+      const props = features[0].properties ?? {};
+      if (props.point_count !== undefined) {
+        map.flyTo({ center: e.lngLat, zoom: map.getZoom() + 2, essential: true });
+        return;
+      }
+      onSelectRef.current((props.catnr as number) ?? -1);
     });
     map.on("move", () => {
       if (mapRef.current !== map) return;
@@ -86,13 +95,46 @@ export default function MapView({
     const satData: GeoJSON.FeatureCollection = { type: "FeatureCollection", features: satFeatures };
 
     if (!map.getSource("satellites")) {
-      map.addSource("satellites", { type: "geojson", data: satData });
+      map.addSource("satellites", { type: "geojson", data: satData, cluster: true, clusterRadius: 50 });
+      map.addLayer({
+        id: "satellites-cluster-layer",
+        type: "circle",
+        source: "satellites",
+        filter: ["has", "point_count"],
+        paint: {
+          "circle-color": "#475569",
+          "circle-radius": ["interpolate", ["linear"], ["get", "point_count"], 0, 12, 200, 28],
+          "circle-stroke-color": "#f8fafc",
+          "circle-stroke-width": 1.5,
+        },
+      });
+      map.addLayer({
+        id: "satellites-cluster-label",
+        type: "symbol",
+        source: "satellites",
+        filter: ["has", "point_count"],
+        layout: {
+          "text-field": ["get", "point_count_abbreviated"],
+          "text-size": 11,
+          "text-font": ["Open Sans Bold"],
+        },
+        paint: { "text-color": "#ffffff" },
+      });
       map.addLayer({
         id: "satellites-layer",
         type: "circle",
         source: "satellites",
+        filter: ["!", ["has", "point_count"]],
         paint: {
-          "circle-radius": ["case", ["get", "selected"], 11, 8],
+          "circle-radius": [
+            "interpolate",
+            ["linear"],
+            ["zoom"],
+            0,
+            ["case", ["get", "selected"], 6, 4],
+            10,
+            ["case", ["get", "selected"], 14, 9],
+          ],
           "circle-color": ["get", "color"],
           "circle-stroke-color": "#ffffff",
           "circle-stroke-width": ["case", ["get", "selected"], 3, 2],
@@ -157,6 +199,14 @@ export default function MapView({
     if (!target) return;
     map.easeTo({ center: [target.lon, target.lat], duration: 500, essential: true });
   }, [positions, followCatnr, styleLoaded]);
+
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !focus || !styleLoaded) return;
+    const target = positions.find((p) => p.catnr === focus.catnr);
+    if (!target) return;
+    map.flyTo({ center: [target.lon, target.lat], zoom: 6, essential: true });
+  }, [focus, positions, styleLoaded]);
 
   return <div ref={containerRef} className="map" />;
 }
