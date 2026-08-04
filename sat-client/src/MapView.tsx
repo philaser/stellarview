@@ -31,6 +31,7 @@ export default function MapView({
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<MapLibreMap | null>(null);
   const [styleLoaded, setStyleLoaded] = useState(false);
+  const [mapBounds, setMapBounds] = useState<{ west: number; south: number; east: number; north: number } | null>(null);
   const onSelectRef = useRef(onSelect);
   const onSetObserverRef = useRef(onSetObserver);
   onSelectRef.current = onSelect;
@@ -54,6 +55,11 @@ export default function MapView({
         onSetObserverRef.current(e.lngLat.lat, e.lngLat.lng);
       }
     });
+    map.on("move", () => {
+      if (mapRef.current !== map) return;
+      const b = map.getBounds();
+      setMapBounds({ west: b.getWest(), south: b.getSouth(), east: b.getEast(), north: b.getNorth() });
+    });
     mapRef.current = map;
     return () => map.remove();
   }, []);
@@ -62,11 +68,21 @@ export default function MapView({
     const map = mapRef.current;
     if (!map || !styleLoaded) return;
 
-    const satFeatures: GeoJSON.Feature[] = positions.map((p) => ({
-      type: "Feature",
-      properties: { ...p },
-      geometry: { type: "Point", coordinates: [p.lon, p.lat] },
-    }));
+    const MARGIN = 2;
+    const satFeatures: GeoJSON.Feature[] = positions
+      .filter((p) =>
+        mapBounds
+          ? p.lon >= mapBounds.west - MARGIN &&
+            p.lon <= mapBounds.east + MARGIN &&
+            p.lat >= mapBounds.south - MARGIN &&
+            p.lat <= mapBounds.north + MARGIN
+          : true
+      )
+      .map((p) => ({
+        type: "Feature",
+        properties: { ...p },
+        geometry: { type: "Point", coordinates: [p.lon, p.lat] },
+      }));
     const satData: GeoJSON.FeatureCollection = { type: "FeatureCollection", features: satFeatures };
 
     if (!map.getSource("satellites")) {
@@ -85,7 +101,7 @@ export default function MapView({
     } else {
       (map.getSource("satellites") as maplibregl.GeoJSONSource).setData(satData);
     }
-  }, [positions, styleLoaded]);
+  }, [positions, styleLoaded, mapBounds]);
 
   useEffect(() => {
     const map = mapRef.current;

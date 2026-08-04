@@ -4,8 +4,10 @@ import MapView, { type MapViewProps } from "../src/MapView";
 
 let capturedClick: ((e: unknown) => void) | null = null;
 let loadHandler: (() => void) | null = null;
+let moveHandler: (() => void) | null = null;
 let clickHitsFeature = true;
 let mockLngLat = { lng: 2.35, lat: 48.86 };
+const mockBounds = { west: 0, south: 0, east: 20, north: 20 };
 const addSourceMock = vi.fn();
 const addLayerMock = vi.fn();
 const setDataMock = vi.fn();
@@ -17,6 +19,7 @@ vi.mock("maplibre-gl", () => ({
     on(evt: string, cb: (e: unknown) => void) {
       if (evt === "click") capturedClick = cb;
       if (evt === "load") loadHandler = cb as () => void;
+      if (evt === "move") moveHandler = cb as () => void;
     }
     addSource(...a: unknown[]) { addSourceMock(...a); addedSources.add(a[0] as string); }
     addLayer(...a: unknown[]) { addLayerMock(...a); }
@@ -24,6 +27,14 @@ vi.mock("maplibre-gl", () => ({
     removeSource() {}
     getSource(name: string) { return addedSources.has(name) ? { setData: setDataMock } : undefined; }
     getLayer() { return undefined; }
+    getBounds() {
+      return {
+        getWest: () => mockBounds.west,
+        getSouth: () => mockBounds.south,
+        getEast: () => mockBounds.east,
+        getNorth: () => mockBounds.north,
+      };
+    }
     queryRenderedFeatures() {
       return clickHitsFeature ? [{ properties: { catnr: 25544 } }] : [];
     }
@@ -35,6 +46,7 @@ vi.mock("maplibre-gl", () => ({
     on(evt: string, cb: (e: unknown) => void) {
       if (evt === "click") capturedClick = cb;
       if (evt === "load") loadHandler = cb as () => void;
+      if (evt === "move") moveHandler = cb as () => void;
     }
     addSource(...a: unknown[]) { addSourceMock(...a); addedSources.add(a[0] as string); }
     addLayer(...a: unknown[]) { addLayerMock(...a); }
@@ -42,6 +54,14 @@ vi.mock("maplibre-gl", () => ({
     removeSource() {}
     getSource(name: string) { return addedSources.has(name) ? { setData: setDataMock } : undefined; }
     getLayer() { return undefined; }
+    getBounds() {
+      return {
+        getWest: () => mockBounds.west,
+        getSouth: () => mockBounds.south,
+        getEast: () => mockBounds.east,
+        getNorth: () => mockBounds.north,
+      };
+    }
     queryRenderedFeatures() {
       return clickHitsFeature ? [{ properties: { catnr: 25544 } }] : [];
     }
@@ -55,6 +75,7 @@ describe("MapView", () => {
   beforeEach(() => {
     capturedClick = null;
     loadHandler = null;
+    moveHandler = null;
     clickHitsFeature = true;
     mockLngLat = { lng: 2.35, lat: 48.86 };
     addSourceMock.mockClear();
@@ -144,5 +165,23 @@ describe("MapView", () => {
       <MapView {...props} positions={[{ catnr: 25544, lat: 45, lon: 2, altKm: 420 }]} followCatnr={null} />
     );
     expect(easeToMock).not.toHaveBeenCalled();
+  });
+
+  it("culls dots to the current map bounds", () => {
+    const { rerender } = render(<MapView {...props} />);
+    act(() => { loadHandler!(); });
+    act(() => { moveHandler!(); }); // set initial bounds
+    rerender(
+      <MapView
+        {...props}
+        positions={[
+          { catnr: 1, lat: 10, lon: 10, altKm: 400 },
+          { catnr: 2, lat: 50, lon: 50, altKm: 400 },
+        ]}
+      />
+    );
+    const satCall = setDataMock.mock.calls.at(-1)!;
+    const features = satCall?.[0].features ?? [];
+    expect(features.map((f: { properties: { catnr: number } }) => f.properties.catnr)).toEqual([1]);
   });
 });
