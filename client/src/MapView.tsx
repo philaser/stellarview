@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import maplibregl, { Map as MapLibreMap } from "maplibre-gl";
 import type { FlightState } from "../../server/src/types";
 
@@ -26,6 +26,7 @@ export default function MapView({ bounds, flights, onSelect }: MapViewProps) {
   const mapRef = useRef<MapLibreMap | null>(null);
   const onSelectRef = useRef(onSelect);
   onSelectRef.current = onSelect;
+  const [styleLoaded, setStyleLoaded] = useState(false);
 
   useEffect(() => {
     const map = new MapLibreMap({
@@ -40,6 +41,9 @@ export default function MapView({ bounds, flights, onSelect }: MapViewProps) {
         const props = features[0].properties ?? {};
         onSelectRef.current(props as unknown as FlightState);
       }
+    });
+    map.on("load", () => {
+      if (mapRef.current === map) setStyleLoaded(true);
     });
     mapRef.current = map;
     return () => map.remove();
@@ -58,6 +62,7 @@ export default function MapView({ bounds, flights, onSelect }: MapViewProps) {
   useEffect(() => {
     const map = mapRef.current;
     if (!map) return;
+    if (!styleLoaded) return;
 
     const positioned = flights.filter(
       (f): f is FlightState & { lat: number; lon: number } => f.lat !== null && f.lon !== null
@@ -100,7 +105,7 @@ export default function MapView({ bounds, flights, onSelect }: MapViewProps) {
     } else {
       source.setData(featureCollection);
     }
-  }, [flights]);
+  }, [flights, styleLoaded]);
 
   return <div ref={containerRef} className="map" />;
 }
