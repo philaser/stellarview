@@ -1,4 +1,10 @@
-import { propagate, gstime, eciToEcf, ecfToLookAngles, type SatRec } from "satellite.js";
+import {
+  propagate,
+  gstime,
+  eciToEcf,
+  ecfToLookAngles,
+  type SatRec,
+} from "satellite.js";
 
 export interface ObserverPoint {
   lat: number;
@@ -13,6 +19,20 @@ export interface Pass {
   maxElevationDeg: number;
 }
 
+export function elevationDegAt(satrec: SatRec, observer: ObserverPoint, date: Date): number {
+  // ecfToLookAngles expects the observer as a geodetic location, not a precomputed ECF vector.
+  const observerGd = {
+    longitude: (observer.lon * Math.PI) / 180,
+    latitude: (observer.lat * Math.PI) / 180,
+    height: observer.heightM / 1000,
+  };
+  const pv = propagate(satrec, date);
+  // satellite.js returns position as false on SGP4 error; treat as below horizon.
+  if (typeof pv.position === "boolean") return -90;
+  const look = ecfToLookAngles(observerGd, eciToEcf(pv.position, gstime(date)));
+  return (look.elevation * 180) / Math.PI;
+}
+
 export function nextPasses(
   satrec: SatRec,
   observer: ObserverPoint,
@@ -20,11 +40,6 @@ export function nextPasses(
   stepS = 60,
   minElevationDeg = 5
 ): Pass[] {
-  const observerGd = {
-    longitude: (observer.lon * Math.PI) / 180,
-    latitude: (observer.lat * Math.PI) / 180,
-    height: observer.heightM / 1000,
-  };
   const now = Date.now();
   const endMs = now + hours * 3600_000;
   const steps = Math.ceil((endMs - now) / (stepS * 1000));
@@ -32,11 +47,7 @@ export function nextPasses(
   const elevations: { t: number; deg: number }[] = [];
   for (let i = 0; i <= steps; i++) {
     const t = now + i * stepS * 1000;
-    const pv = propagate(satrec, new Date(t));
-    // satellite.js returns position as false on SGP4 error; treat as not visible.
-    if (typeof pv.position === "boolean") continue;
-    const look = ecfToLookAngles(observerGd, eciToEcf(pv.position, gstime(new Date(t))));
-    elevations.push({ t, deg: (look.elevation * 180) / Math.PI });
+    elevations.push({ t, deg: elevationDegAt(satrec, observer, new Date(t)) });
   }
 
   const passes: Pass[] = [];
