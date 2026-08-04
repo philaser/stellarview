@@ -72,12 +72,15 @@ export default function MapView({
       setMapBounds({ west: b.getWest(), south: b.getSouth(), east: b.getEast(), north: b.getNorth() });
       const zoom = map.getZoom();
       setMapZoom(zoom);
-      const dotsVisible = zoom < 5;
+      const dotsVisible = zoom >= 5;
       if (map.getLayer("satellites-layer")) {
         map.setLayoutProperty("satellites-layer", "visibility", dotsVisible ? "visible" : "none");
       }
       if (map.getLayer("clusters-layer")) {
         map.setLayoutProperty("clusters-layer", "visibility", dotsVisible ? "none" : "visible");
+      }
+      if (map.getLayer("clusters-label")) {
+        map.setLayoutProperty("clusters-label", "visibility", dotsVisible ? "none" : "visible");
       }
     });
     mapRef.current = map;
@@ -111,6 +114,7 @@ export default function MapView({
         id: "satellites-layer",
         type: "circle",
         source: "satellites",
+        layout: { visibility: "none" },
         paint: {
           "circle-radius": [
             "interpolate",
@@ -152,6 +156,7 @@ export default function MapView({
         id: "clusters-layer",
         type: "circle",
         source: "clusters",
+        layout: { visibility: "visible" },
         paint: {
           "circle-color": "#475569",
           "circle-radius": ["interpolate", ["linear"], ["get", "point_count"], 0, 10, 200, 26],
@@ -167,6 +172,7 @@ export default function MapView({
           "text-field": ["get", "point_count"],
           "text-size": 11,
           "text-font": ["Noto Sans Regular"],
+          visibility: "visible",
         },
         paint: { "text-color": "#ffffff" },
       });

@@ -254,21 +254,29 @@ describe("MapView", () => {
     expect(flyToMock).toHaveBeenCalledWith(expect.objectContaining({ zoom: 6 }));
   });
 
-  it("shows dots and hides clusters below zoom 5", () => {
+  it("shows clusters and hides dots below zoom 5", () => {
     render(<MapView {...props} />);
     act(() => { loadHandler!(); });
-    act(() => { moveHandler!(); }); // mockZoom 4 < 5
-    expect(setLayoutPropertyMock).toHaveBeenCalledWith("satellites-layer", "visibility", "visible");
-    expect(setLayoutPropertyMock).toHaveBeenCalledWith("clusters-layer", "visibility", "none");
+    const satAdd = addLayerMock.mock.calls.find((c) => c[0].id === "satellites-layer");
+    expect(satAdd![0].layout.visibility).toBe("none");
+    const clusterAdd = addLayerMock.mock.calls.find((c) => c[0].id === "clusters-layer");
+    expect(clusterAdd![0].layout.visibility).toBe("visible");
+    mockZoom = 2;
+    act(() => { moveHandler!(); });
+    const calls = setLayoutPropertyMock.mock.calls;
+    expect(calls).toContainEqual(["satellites-layer", "visibility", "none"]);
+    expect(calls).toContainEqual(["clusters-layer", "visibility", "visible"]);
+    expect(calls).toContainEqual(["clusters-label", "visibility", "visible"]);
   });
 
-  it("hides dots and shows clusters at zoom 5 and above", () => {
-    mockZoom = 6;
+  it("shows dots and hides clusters at zoom 5 and above", () => {
     render(<MapView {...props} />);
     act(() => { loadHandler!(); });
+    mockZoom = 6;
     act(() => { moveHandler!(); });
-    expect(setLayoutPropertyMock).toHaveBeenCalledWith("satellites-layer", "visibility", "none");
-    expect(setLayoutPropertyMock).toHaveBeenCalledWith("clusters-layer", "visibility", "visible");
+    const calls = setLayoutPropertyMock.mock.calls;
+    expect(calls).toContainEqual(["satellites-layer", "visibility", "visible"]);
+    expect(calls).toContainEqual(["clusters-layer", "visibility", "none"]);
   });
 
   it("flies to the focused satellite's position", () => {
