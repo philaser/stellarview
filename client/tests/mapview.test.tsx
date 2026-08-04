@@ -2,24 +2,48 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen } from "@testing-library/react";
 import MapView, { altitudeColor } from "../src/MapView";
 
-vi.mock("maplibre-gl", () => {
-  class MockMap {
-    constructor() {}
-    on() {}
+let capturedClickHandler: ((e: unknown) => void) | null = null;
+
+vi.mock("maplibre-gl", () => ({
+  default: class {
+    on(evt: string, cb: (e: unknown) => void) {
+      if (evt === "click") capturedClickHandler = cb;
+    }
     addSource() {}
     addLayer() {}
     remove() {}
+    flyTo() {}
     getSource() {
       return undefined;
     }
+    queryRenderedFeatures() {
+      return [
+        { properties: { icao24: "a1b2c3", callsign: "UAL123", altitudeBaro: 10668 } },
+      ];
+    }
+  },
+  Map: class {
+    on(evt: string, cb: (e: unknown) => void) {
+      if (evt === "click") capturedClickHandler = cb;
+    }
+    addSource() {}
+    addLayer() {}
+    remove() {}
     flyTo() {}
-  }
-  return { default: MockMap, Map: MockMap };
-});
+    getSource() {
+      return undefined;
+    }
+    queryRenderedFeatures() {
+      return [
+        { properties: { icao24: "a1b2c3", callsign: "UAL123", altitudeBaro: 10668 } },
+      ];
+    }
+  },
+}));
 
 describe("MapView", () => {
   beforeEach(() => {
-    vi.clearAllMocks();
+    capturedClickHandler = null;
   });
 
   it("maps altitude to colors", () => {
@@ -38,5 +62,10 @@ describe("MapView", () => {
       />
     );
     expect(document.querySelector(".map")).toBeInTheDocument();
+  });
+
+  it("registers a click handler on the map", () => {
+    render(<MapView bounds={[-10, 35, 30, 60]} flights={[]} onSelect={() => {}} />);
+    expect(capturedClickHandler).not.toBeNull();
   });
 });
