@@ -195,6 +195,7 @@ describe("App", () => {
     const geoDots = setDataMock.mock.calls
       .filter((c) => c[0] === "satellites")
       .at(-1)?.[1].features;
+    expect(geoDots).toHaveLength(2);
     expect(geoDots.every((f: { properties: { catnr: number } }) => f.properties.catnr !== 41866)).toBe(true);
   });
 

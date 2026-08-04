@@ -75,6 +75,7 @@ export default function App() {
 
   useEffect(() => {
     const compute = () => {
+      if (document.visibilityState !== "visible") return;
       const now = new Date();
       const next = visibleSats
         .map((s): SatDot | null => {
