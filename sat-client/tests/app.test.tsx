@@ -66,6 +66,49 @@ vi.mock("maplibre-gl", () => ({
   },
 }));
 
+// globe.gl needs a DOM element + WebGL; in jsdom tests it can't construct, so no-op it.
+vi.mock("globe.gl", () => ({
+  default: class {
+    constructor() {}
+    onPointClick() { return this; }
+    onPointHover() { return this; }
+    pointsData() { return this; }
+    pointLat() { return this; }
+    pointLng() { return this; }
+    pointAltitude() { return this; }
+    pointColor() { return this; }
+    pointRadius() { return this; }
+    polygonsData() { return this; }
+    polygonCapColor() { return this; }
+    polygonSideColor() { return this; }
+    polygonStrokeColor() { return this; }
+    polygonAltitude() { return this; }
+    pathsData() { return this; }
+    pathPoints() { return this; }
+    pathPointLat() { return this; }
+    pathPointLng() { return this; }
+    pathPointAlt() { return this; }
+    pathColor() { return this; }
+    pathStroke() { return this; }
+    pathDashLength() { return this; }
+    pathDashGap() { return this; }
+    pathDashInitialGap() { return this; }
+    labelsData() { return this; }
+    labelLat() { return this; }
+    labelLng() { return this; }
+    labelText() { return this; }
+    labelColor() { return this; }
+    labelSize() { return this; }
+    labelAltitude() { return this; }
+    labelResolution() { return this; }
+    backgroundColor() { return this; }
+    showAtmosphere() { return this; }
+    atmosphereColor() { return this; }
+    showGraticules() { return this; }
+    pointOfView() { return this; }
+    _destructor() {}
+  },
+}));
 beforeEach(() => {
   capturedClick = null;
   loadHandler = null;
@@ -283,5 +326,14 @@ describe("App", () => {
     expect(document.querySelector(".controls")?.classList.contains("closed")).toBe(true);
     fireEvent.click(screen.getByLabelText("Toggle filters"));
     expect(document.querySelector(".controls")?.classList.contains("open")).toBe(true);
+  });
+
+  it("toggles between 2D and 3D modes", async () => {
+    render(<App />);
+    await act(async () => {});
+    fireEvent.click(screen.getByRole("button", { name: /toggle 3d mode/i }));
+    expect(screen.getByText("2D mode")).toBeInTheDocument();
+    fireEvent.click(screen.getByText("2D mode"));
+    expect(screen.getByText("3D mode")).toBeInTheDocument();
   });
 });

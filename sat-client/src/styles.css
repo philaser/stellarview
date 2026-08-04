@@ -32,6 +32,21 @@ html, body, #root { height: 100%; margin: 0; }
   cursor: pointer;
 }
 .gear-button:hover { color: #60a5fa; }
+.mode-button {
+  position: absolute;
+  top: 12px;
+  left: 56px;
+  z-index: 10;
+  height: 36px;
+  padding: 0 12px;
+  background: rgba(17, 24, 39, 0.92);
+  color: #e5e7eb;
+  border: 1px solid #374151;
+  border-radius: 8px;
+  font: 13px system-ui, sans-serif;
+  cursor: pointer;
+}
+.mode-button:hover { color: #60a5fa; }
 .controls {
   position: absolute;
   top: 56px;

@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import MapView, { type SatDot } from "./MapView";
+import GlobeView from "./GlobeView";
 import {
   annotate,
   CONSTELLATIONS,
@@ -35,6 +36,7 @@ export default function App() {
   const [night, setNight] = useState<[number, number][] | null>(null);
   const [showNight, setShowNight] = useState(true);
   const [controlsOpen, setControlsOpen] = useState(true);
+  const [mode, setMode] = useState<"2d" | "3d">("2d");
 
   useEffect(() => {
     const update = () => setNight(nightPolygon(new Date()));
@@ -192,16 +194,33 @@ export default function App() {
 
   return (
     <div className="app">
-      <MapView
-        positions={positions}
-        orbits={selected && orbits[selected.catnr] ? { [selected.catnr]: orbits[selected.catnr] } : {}}
-        observer={observer ? { lat: observer.lat, lon: observer.lon } : null}
-        onSelect={setSelectedCatnr}
-        onSetObserver={(lat, lon) => setObserver(normalizeObserver(lat, lon))}
-        followCatnr={followCatnr}
-        focus={focus}
-        night={showNight ? night : null}
-      />
+      {mode === "2d" ? (
+        <MapView
+          positions={positions}
+          orbits={selected && orbits[selected.catnr] ? { [selected.catnr]: orbits[selected.catnr] } : {}}
+          observer={observer ? { lat: observer.lat, lon: observer.lon } : null}
+          onSelect={setSelectedCatnr}
+          onSetObserver={(lat, lon) => setObserver(normalizeObserver(lat, lon))}
+          followCatnr={followCatnr}
+          focus={focus}
+          night={showNight ? night : null}
+        />
+      ) : (
+        <GlobeView
+          positions={positions}
+          selectedOrbit={selected && orbits[selected.catnr] ? orbits[selected.catnr] : null}
+          selectedCatnr={selectedCatnr}
+          onSelect={setSelectedCatnr}
+        />
+      )}
+      <button
+        className="mode-button"
+        aria-label="Toggle 3D mode"
+        title={mode === "2d" ? "Show 3D globe" : "Show 2D map"}
+        onClick={() => setMode((m) => (m === "2d" ? "3d" : "2d"))}
+      >
+        {mode === "2d" ? "3D mode" : "2D mode"}
+      </button>
       <button
         className="gear-button"
         aria-label="Toggle filters"

@@ -147,6 +147,20 @@ if ((await gear.count()) > 0) {
   step("gear collapse/expand", false, "gear button not found");
 }
 
+// 7. 3D mode
+const modeBtn = page.locator('button[aria-label="Toggle 3D mode"]');
+if ((await modeBtn.count()) > 0) {
+  await modeBtn.click();
+  await page.waitForTimeout(6000); // globe + countries fetch
+  await shot(page, "11-3d-globe");
+  const errCount = pageErrors.length;
+  step("3d mode loads", errCount === 0, `pageErrors after 3D: ${errCount}`);
+  await modeBtn.click();
+  await page.waitForTimeout(1000);
+} else {
+  step("3d mode loads", false, "3D toggle not found");
+}
+
 await browser.close();
 
 writeFileSync(join(OUT_DIR, "report.json"), JSON.stringify(report, null, 2));
