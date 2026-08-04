@@ -105,4 +105,17 @@ describe("MapView", () => {
     capturedClick!({ lngLat: mockLngLat });
     expect(onSetObserver).toHaveBeenCalledWith(48.86, 2.35);
   });
+
+  it("uses data-driven radius and white halo stroke for satellite dots", () => {
+    render(<MapView {...props} />);
+    act(() => {
+      loadHandler!();
+    });
+    const layerCall = addLayerMock.mock.calls.find((c) => c[0].id === "satellites-layer");
+    expect(layerCall).toBeDefined();
+    const paint = layerCall![0].paint;
+    expect(paint["circle-radius"]).toEqual(["case", ["get", "selected"], 11, 8]);
+    expect(paint["circle-stroke-color"]).toEqual("#ffffff");
+    expect(paint["circle-stroke-width"]).toEqual(["case", ["get", "selected"], 3, 2]);
+  });
 });

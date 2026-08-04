@@ -8,6 +8,7 @@ export interface SatDot {
   altKm: number;
   velocityKms?: number;
   color?: string;
+  selected?: boolean;
 }
 
 export interface MapViewProps {
@@ -61,7 +62,7 @@ export default function MapView({
 
     const satFeatures: GeoJSON.Feature[] = positions.map((p) => ({
       type: "Feature",
-      properties: { catnr: p.catnr, color: p.color ?? "#94a3b8" },
+      properties: { ...p },
       geometry: { type: "Point", coordinates: [p.lon, p.lat] },
     }));
     const satData: GeoJSON.FeatureCollection = { type: "FeatureCollection", features: satFeatures };
@@ -72,7 +73,12 @@ export default function MapView({
         id: "satellites-layer",
         type: "circle",
         source: "satellites",
-        paint: { "circle-radius": 4, "circle-color": ["get", "color"] },
+        paint: {
+          "circle-radius": ["case", ["get", "selected"], 11, 8],
+          "circle-color": ["get", "color"],
+          "circle-stroke-color": "#ffffff",
+          "circle-stroke-width": ["case", ["get", "selected"], 3, 2],
+        },
       });
     } else {
       (map.getSource("satellites") as maplibregl.GeoJSONSource).setData(satData);

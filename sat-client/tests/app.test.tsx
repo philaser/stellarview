@@ -8,20 +8,24 @@ const ISS_BLOCK = `ISS (ZARYA)
 `;
 
 let capturedClick: ((e: unknown) => void) | null = null;
+let loadHandler: (() => void) | null = null;
 let clickHitsFeature = true;
 let geoMock: ReturnType<typeof vi.fn>;
+const addSourceMock = vi.fn();
+const setDataMock = vi.fn();
 
 vi.mock("maplibre-gl", () => ({
   default: class {
     on(evt: string, cb: (e: unknown) => void) {
       if (evt === "click") capturedClick = cb;
+      if (evt === "load") loadHandler = cb as () => void;
     }
-    addSource() {}
+    addSource(...a: unknown[]) { addSourceMock(...a); }
     addLayer() {}
     removeLayer() {}
     removeSource() {}
-    getSource() {
-      return { setData: vi.fn() };
+    getSource(name: string) {
+      return { setData: (data: unknown) => setDataMock(name, data) };
     }
     getLayer() {
       return undefined;
@@ -35,13 +39,14 @@ vi.mock("maplibre-gl", () => ({
   Map: class {
     on(evt: string, cb: (e: unknown) => void) {
       if (evt === "click") capturedClick = cb;
+      if (evt === "load") loadHandler = cb as () => void;
     }
-    addSource() {}
+    addSource(...a: unknown[]) { addSourceMock(...a); }
     addLayer() {}
     removeLayer() {}
     removeSource() {}
-    getSource() {
-      return { setData: vi.fn() };
+    getSource(name: string) {
+      return { setData: (data: unknown) => setDataMock(name, data) };
     }
     getLayer() {
       return undefined;
@@ -56,8 +61,11 @@ vi.mock("maplibre-gl", () => ({
 
 beforeEach(() => {
   capturedClick = null;
+  loadHandler = null;
   clickHitsFeature = true;
   geoMock = vi.fn();
+  addSourceMock.mockClear();
+  setDataMock.mockClear();
   vi.useFakeTimers();
   vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: true, text: async () => ISS_BLOCK }));
   vi.stubGlobal("navigator", { ...navigator, geolocation: { getCurrentPosition: geoMock } });
@@ -114,5 +122,31 @@ describe("App", () => {
     render(<App />);
     await act(async () => {});
     expect(screen.getByText("TLE provider unreachable")).toBeInTheDocument();
+  });
+
+  it("flags the selected satellite's dot feature", async () => {
+    render(<App />);
+    await act(async () => {});
+    await act(async () => {
+      loadHandler!();
+    });
+    await act(async () => {
+      vi.advanceTimersByTime(1000);
+    });
+    await act(async () => {
+      capturedClick!({ point: { x: 0, y: 0 } }); // selects ISS (25544)
+    });
+    await act(async () => {
+      vi.advanceTimersByTime(1000);
+    });
+    const satCalls = setDataMock.mock.calls.filter((c) => c[0] === "satellites");
+    expect(satCalls.length).toBeGreaterThan(0);
+    const [, data] = satCalls.at(-1)!;
+    expect(
+      data.features.every(
+        (f: { properties: { catnr: number; selected?: boolean } }) =>
+          f.properties.selected === (f.properties.catnr === 25544)
+      )
+    ).toBe(true);
   });
 });

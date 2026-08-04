@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import MapView, { type SatDot } from "./MapView";
 import { SAT_CONFIG, CATNR_LIST } from "./config";
 import { parseTleBlock, type TleSatellite } from "./sat/tle";
@@ -15,6 +15,8 @@ export default function App() {
   const [positions, setPositions] = useState<SatDot[]>([]);
   const [orbits, setOrbits] = useState<Record<number, [number, number][]>>({});
   const [selectedCatnr, setSelectedCatnr] = useState<number | null>(null);
+  const selectedCatnrRef = useRef(selectedCatnr);
+  selectedCatnrRef.current = selectedCatnr;
   const [observer, setObserver] = useState<ObserverPoint | null>(null);
   const [passes, setPasses] = useState<Pass[] | null>(null);
 
@@ -58,6 +60,7 @@ export default function App() {
               altKm: p.altKm,
               velocityKms: p.velocityKms,
               color: cfg?.color,
+              selected: s.catnr === selectedCatnrRef.current,
             };
           } catch {
             // positionAt throws on SGP4 error; skip this satellite this tick.
@@ -101,7 +104,7 @@ export default function App() {
     <div className="app">
       <MapView
         positions={positions}
-        orbits={orbits}
+        orbits={selected ? { [selected.catnr]: orbits[selected.catnr] } : {}}
         observer={observer ? { lat: observer.lat, lon: observer.lon } : null}
         onSelect={setSelectedCatnr}
         onSetObserver={(lat, lon) => setObserver({ lat, lon, heightM: 0 })}
