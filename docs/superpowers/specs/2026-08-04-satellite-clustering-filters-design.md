@@ -10,11 +10,17 @@ Make the 16k-object catalog usable: (1) cluster dots at low zoom with click-to-z
 
 ## 1. Clustering + zoom-dependent rendering (MapView)
 
-- Satellites GeoJSON source gains `cluster: true, clusterRadius: 50` (MapLibre's built-in clustering — established library feature, no hand-rolled clustering)
-- **Cluster layer** (`satellites-cluster-layer`, circle + count-label symbol): neutral slate circles, radius scales with `point_count`, white `point_count_abbreviated` text; placed below the dots layer
-- **Dots layer** (`satellites-layer`): filter `["!", ["has", "point_count"]]`; radius interpolated by zoom (small at world view, ~9-14px when zoomed in; selected dot stays larger at all zooms)
-- **Click handling:** cluster feature → `flyTo({ center: e.lngLat, zoom: zoom + 2 })`; dot feature → `onSelect(catnr)` (existing)
-- **Focus prop:** `focus: { catnr, ts } | null` — flyTo the satellite's current position at zoom ~6 (used by the search results list); effect keyed on the `ts` so repeated clicks on the same result re-trigger
+**EMPIRICAL FINDING (2026-08-04):** MapLibre's built-in clustering (`cluster: true` on a GeoJSON source) renders NOTHING in this environment — the clustered source silently produces zero features in both headless Chromium and the user's browser, while the identical 16k dataset renders fine with clustering off (verified by in-browser experiment: 9,820 dots rendered unclustered vs 0 clustered, no console errors). No upstream fix found. **Decision: hand-rolled "cluster-lite"** — deterministic JS grid bucketing in Mercator tile space (sanctioned by AGENTS.md: hand-roll only when no reasonable existing solution exists; the established one demonstrably fails here).
+
+- Satellites source stays **unclustered** (proven rendering path)
+- New pure module `sat-client/src/sat/cluster.ts`:
+  - `tileXY(lat, lon, zoom)` → fractional Mercator tile coords
+  - `bucketClusters(points, zoom, cellSize=0.25)` → buckets of points by grid cell, each with count + centroid lon/lat
+- MapView renders a separate `clusters` source/layer (circles sized by count + count labels) from `bucketClusters(positions, currentZoom)` — the App side is untouched
+- **Zoom-based visibility:** below zoom 5 → clusters visible, individual dots hidden; at ≥ zoom 5 → dots visible, clusters hidden (implemented via layout `visibility` zoom-step expression if MapLibre accepts it, else `setLayoutProperty` on zoom change — verify in browser)
+- Click: cluster feature → `flyTo({ center, zoom: zoom + 2 })`; dot → `onSelect` (unchanged)
+- Cluster count labels: use a font that exists in the OpenFreeMap liberty style (the earlier `"Open Sans Bold"` produced a glyph 404 — verify the style's actual fonts from its JSON and use one; fallback: no explicit font if the style defaults exist)
+- **Focus prop:** `focus: { catnr, ts } | null` — flyTo the satellite's current position at zoom ~6; one-shot per `ts` (deduped via ref so the 2s tick doesn't re-fly)
 
 ## 2. Better filters (App)
 
