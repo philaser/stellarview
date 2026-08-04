@@ -10,5 +10,14 @@ export function buildGroundTrack(satrec: SatRec, points = 120): [number, number]
     const pos = positionAt(satrec, t);
     track.push([pos.lonDeg, pos.latDeg]);
   }
+  // Unwrap longitudes so the track never jumps ±180° at the antimeridian (MapLibre would draw a full-viewport line).
+  let prev = track[0][0];
+  for (let i = 1; i < track.length; i++) {
+    let lon = track[i][0];
+    while (lon - prev > 180) lon -= 360;
+    while (lon - prev < -180) lon += 360;
+    track[i] = [lon, track[i][1]];
+    prev = lon;
+  }
   return track;
 }

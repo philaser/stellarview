@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { parseTleBlock, TleSatellite } from "../src/sat/tle";
+import { parseTleBlock } from "../src/sat/tle";
 import { positionAt } from "../src/sat/propagate";
 import { buildGroundTrack } from "../src/sat/groundTrack";
 import { nextPasses } from "../src/sat/passes";
@@ -51,10 +51,18 @@ describe("buildGroundTrack", () => {
     const track = buildGroundTrack(iss.satrec, 120);
     expect(track).toHaveLength(120);
     for (const [lon, lat] of track) {
-      expect(lon).toBeGreaterThan(-180);
-      expect(lon).toBeLessThan(180);
+      // unwrapped longitudes may legitimately exceed ±180
+      expect(Math.abs(lon)).toBeLessThan(540);
       expect(lat).toBeGreaterThan(-90);
       expect(lat).toBeLessThan(90);
+    }
+  });
+
+  it("unwraps longitudes so the track never jumps the antimeridian", () => {
+    const [iss] = parseTleBlock(ISS_BLOCK);
+    const track = buildGroundTrack(iss.satrec, 120);
+    for (let i = 1; i < track.length; i++) {
+      expect(Math.abs(track[i][0] - track[i - 1][0])).toBeLessThanOrEqual(180);
     }
   });
 });
