@@ -3,8 +3,8 @@ import http from "http";
 import type { AddressInfo } from "net";
 import request from "supertest";
 import { createApp } from "../src/app";
-import type { FlightProvider } from "../src/providers/flight-provider";
-import type { FlightState } from "../src/types";
+import type { FlightProvider, TrackSource } from "../src/providers/flight-provider";
+import type { FlightState, FlightTrack } from "../src/types";
 
 const flight: FlightState = {
   icao24: "mock1",
@@ -131,5 +131,84 @@ describe("proxy /api/airports", () => {
     }
     // An uncaught ERR_HTTP_HEADERS_SENT from the sendFile error callback
     // would surface as an unhandled error and fail the run.
+  });
+});
+
+const trackSourceProvider: FlightProvider & TrackSource = {
+  name: "mock-track",
+  fetchStates: async () => [],
+  fetchTrack: async () => ({
+    icao24: "a1b2c3",
+    callsign: "UAL123",
+    points: [
+      { t: 1754300000, lat: 35.1, lon: -95.0, altBaro: 10000 },
+      { t: 1754300060, lat: 35.2, lon: -95.1, altBaro: 10100 },
+    ],
+  }),
+};
+
+describe("GET /api/track", () => {
+  it("returns 400 for an invalid icao24", async () => {
+    const app = createApp({ provider: trackSourceProvider });
+    const res = await request(app).get("/api/track?icao24=zzzzzz");
+    expect(res.status).toBe(400);
+  });
+
+  it("returns the track and caches per icao24 within TTL", async () => {
+    const fetchTrack = vi.fn(async () => ({
+      icao24: "a1b2c3",
+      callsign: "UAL123",
+      points: [{ t: 1, lat: 1, lon: 1, altBaro: null }],
+    }));
+    const provider = { name: "mock-track", fetchStates: async () => [], fetchTrack } as FlightProvider & TrackSource;
+    const app = createApp({ provider });
+    const res1 = await request(app).get("/api/track?icao24=a1b2c3");
+    expect(res1.status).toBe(200);
+    expect(res1.body.track?.callsign).toBe("UAL123");
+    expect(res1.body.rateLimited).toBe(false);
+    const res2 = await request(app).get("/api/track?icao24=a1b2c3");
+    expect(res2.status).toBe(200);
+    expect(fetchTrack).toHaveBeenCalledTimes(1);
+  });
+
+  it("reports rateLimited on 429, cold cache returns track null", async () => {
+    const failing = async () => {
+      const e = new Error("429") as Error & { status?: number };
+      e.status = 429;
+      throw e;
+    };
+    const provider = { name: "mock-track", fetchStates: async () => [], fetchTrack: failing } as FlightProvider & TrackSource;
+    const app = createApp({ provider });
+    const res = await request(app).get("/api/track?icao24=a1b2c3");
+    expect(res.status).toBe(200);
+    expect(res.body.track).toBeNull();
+    expect(res.body.rateLimited).toBe(true);
+  });
+
+  it("serves the cached track without re-fetching once warm", async () => {
+    let shouldFail = false;
+    const fetchTrack = vi.fn(async () => {
+      if (shouldFail) {
+        const e = new Error("429") as Error & { status?: number };
+        e.status = 429;
+        throw e;
+      }
+      return { icao24: "a1b2c3", callsign: "UAL123", points: [{ t: 1, lat: 1, lon: 1, altBaro: null }] };
+    });
+    const provider = { name: "mock-track", fetchStates: async () => [], fetchTrack } as FlightProvider & TrackSource;
+    const app = createApp({ provider });
+    await request(app).get("/api/track?icao24=a1b2c3");
+    shouldFail = true;
+    const res = await request(app).get("/api/track?icao24=a1b2c3");
+    expect(res.body.track?.callsign).toBe("UAL123");
+    expect(res.body.rateLimited).toBe(false);
+    expect(fetchTrack).toHaveBeenCalledTimes(1);
+  });
+
+  it("returns 501 when the provider does not support tracks", async () => {
+    const plain: FlightProvider = { name: "mock-plain", fetchStates: async () => [] };
+    const app = createApp({ provider: plain });
+    const res = await request(app).get("/api/track?icao24=a1b2c3");
+    expect(res.status).toBe(501);
   });
 });

@@ -3,14 +3,15 @@ import path from "path";
 import express from "express";
 import cors from "cors";
 import { parseBbox } from "./bbox";
-import type { FlightsResponse, FlightState } from "./types";
+import type { FlightsResponse, FlightState, FlightTrack, TrackResponse } from "./types";
 import { createProvider } from "./providers/factory";
 import { TtlCache } from "./cache";
-import type { FlightProvider } from "./providers/flight-provider";
+import type { FlightProvider, TrackSource } from "./providers/flight-provider";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 const DEFAULT_CACHE_TTL_MS = 15_000;
+const TRACK_CACHE_TTL_MS = 120_000;
 const DEFAULT_LAST_GOOD_TTL_MS = 60_000;
 const MAX_LAST_GOOD_KEYS = 100;
 
@@ -20,17 +21,20 @@ interface LastGoodEntry {
   expiresAt: number;
 }
 
-export interface CreateAppOptions {
+export interface CreateAppDeps {
   provider?: FlightProvider;
   cacheTtlMs?: number;
+  trackCacheTtlMs?: number;
 }
 
-export function createApp(options: CreateAppOptions = {}) {
-  const cacheTtlMs = options.cacheTtlMs ?? DEFAULT_CACHE_TTL_MS;
-  const provider = options.provider ?? createProvider(process.env);
-  const cache = new TtlCache<FlightState[]>(cacheTtlMs);
+export function createApp(
+  { provider, cacheTtlMs, trackCacheTtlMs }: CreateAppDeps = {}
+) {
+  const providerInstance = provider ?? createProvider(process.env);
+  const cache = new TtlCache<FlightState[]>(cacheTtlMs ?? DEFAULT_CACHE_TTL_MS);
+  const trackCache = new TtlCache<FlightTrack | null>(trackCacheTtlMs ?? TRACK_CACHE_TTL_MS);
   // The fallback must outlive the hot cache, or it is already expired the moment the primary fails.
-  const lastGoodTtlMs = Math.max(cacheTtlMs, DEFAULT_LAST_GOOD_TTL_MS);
+  const lastGoodTtlMs = Math.max(cacheTtlMs ?? DEFAULT_CACHE_TTL_MS, DEFAULT_LAST_GOOD_TTL_MS);
   const lastGood = new Map<string, LastGoodEntry>();
 
   const app = express();
@@ -60,7 +64,7 @@ export function createApp(options: CreateAppOptions = {}) {
     let stale = false;
 
     try {
-      const flights = await cache.getOrLoad(key, () => provider.fetchStates(bbox));
+      const flights = await cache.getOrLoad(key, () => providerInstance.fetchStates(bbox));
       const now = Date.now();
       lastGood.set(key, { flights, fetchedAt: now, expiresAt: now + lastGoodTtlMs });
       if (lastGood.size > MAX_LAST_GOOD_KEYS) {
@@ -84,6 +88,40 @@ export function createApp(options: CreateAppOptions = {}) {
         res.json(body);
       } else {
         if (fallback) lastGood.delete(key);
+        res.status(502).json({ error: "provider unreachable", rateLimited });
+      }
+    }
+  });
+
+  const trackSource = providerInstance as FlightProvider & Partial<TrackSource>;
+  // bind: fetchTrack is a class method (OpenSky) that uses `this` (tokenManager).
+  const fetchTrack = trackSource.fetchTrack?.bind(providerInstance);
+
+  app.get("/api/track", async (req, res) => {
+    const icao24 = String(req.query.icao24 ?? "").toLowerCase();
+    if (!/^[0-9a-f]{6}$/.test(icao24)) {
+      res.status(400).json({ error: "invalid icao24" });
+      return;
+    }
+    if (typeof fetchTrack !== "function") {
+      res.status(501).json({ error: `track not supported by provider ${providerInstance.name}` });
+      return;
+    }
+
+    let rateLimited = false;
+    try {
+      const track = await trackCache.getOrLoad(icao24, () =>
+        fetchTrack(icao24, Math.floor(Date.now() / 1000))
+      );
+      const body: TrackResponse = { track, stale: false, rateLimited };
+      res.json(body);
+    } catch (err) {
+      if ((err as { status?: number }).status === 429) rateLimited = true;
+      const cached = trackCache.get(icao24);
+      if (cached !== undefined || rateLimited) {
+        const body: TrackResponse = { track: cached ?? null, stale: false, rateLimited };
+        res.json(body);
+      } else {
         res.status(502).json({ error: "provider unreachable", rateLimited });
       }
     }
