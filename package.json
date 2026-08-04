@@ -1,12 +1,14 @@
 {
   "name": "flight-tracker",
   "private": true,
-  "workspaces": ["server", "client"],
+  "workspaces": ["server", "client", "sat-client"],
   "scripts": {
     "dev": "npm-run-all --parallel dev:server dev:client",
+    "dev:sat": "npm-run-all --parallel dev:server dev:sat-client",
     "dev:server": "npm run dev -w server",
     "dev:client": "npm run dev -w client",
-    "test": "npm run test -w server && npm run test -w client",
+    "dev:sat-client": "npm run dev -w sat-client",
+    "test": "npm run test -w server && npm run test -w client && npm run test -w sat-client",
     "build:airports": "tsx scripts/build-airports.ts"
   },
   "devDependencies": {
