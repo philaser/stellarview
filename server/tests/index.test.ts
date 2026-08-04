@@ -1,4 +1,6 @@
 import { describe, it, expect, vi } from "vitest";
+import http from "http";
+import type { AddressInfo } from "net";
 import request from "supertest";
 import { createApp } from "../src/app";
 import type { FlightProvider } from "../src/providers/flight-provider";
@@ -87,5 +89,47 @@ describe("proxy /api/flights", () => {
     const res = await request(app).get(`/api/flights${BBOX}`);
     expect(res.status).toBe(502);
     expect(res.body).toEqual({ error: "provider unreachable", rateLimited: true });
+  });
+});
+
+describe("proxy /api/airports", () => {
+  const app = createApp({ provider: okProvider });
+
+  function startServer(): Promise<{ server: http.Server; port: number }> {
+    return new Promise((resolve) => {
+      const server = app.listen(0, () => {
+        resolve({ server, port: (server.address() as AddressInfo).port });
+      });
+    });
+  }
+
+  it("serves the airport dataset", async () => {
+    const { server, port } = await startServer();
+    try {
+      const res = await fetch(`http://127.0.0.1:${port}/api/airports`);
+      expect(res.status).toBe(200);
+      const airports = (await res.json()) as { ident: string }[];
+      expect(airports.length).toBeGreaterThan(0);
+    } finally {
+      server.close();
+    }
+  });
+
+  it("survives a client that aborts mid-transfer", async () => {
+    const { server, port } = await startServer();
+    try {
+      await new Promise<void>((resolve, reject) => {
+        const req = http.get(`http://127.0.0.1:${port}/api/airports`, (res) => {
+          res.destroy();
+          setTimeout(resolve, 300);
+        });
+        req.on("error", () => {});
+        setTimeout(() => reject(new Error("timed out")), 2000);
+      });
+    } finally {
+      server.close();
+    }
+    // An uncaught ERR_HTTP_HEADERS_SENT from the sendFile error callback
+    // would surface as an unhandled error and fail the run.
   });
 });

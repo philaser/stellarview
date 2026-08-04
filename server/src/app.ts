@@ -38,7 +38,11 @@ export function createApp(options: CreateAppOptions = {}) {
 
   app.get("/api/airports", (_req, res) => {
     res.sendFile("data/airports.json", { root: path.join(__dirname, "..") }, (err) => {
-      if (err) res.status(500).json({ error: "airport dataset missing — run npm run build:airports" });
+      // The callback also fires on client aborts after the response started;
+      // only send a 500 when nothing has been written yet.
+      if (err && !res.headersSent) {
+        res.status(500).json({ error: "airport dataset missing — run npm run build:airports" });
+      }
     });
   });
 
