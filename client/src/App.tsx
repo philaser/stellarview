@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import MapView from "./MapView";
-import type { FlightsResponse, FlightState } from "../../server/src/types";
+import type { FlightsResponse, FlightState, FlightTrack } from "../../server/src/types";
 
 const REGIONS = {
   europe: { name: "Europe", bounds: [-10, 35, 30, 60] as [number, number, number, number] },
@@ -15,6 +15,8 @@ export default function App() {
   const [lastUpdated, setLastUpdated] = useState<number | null>(null);
   const [rateLimited, setRateLimited] = useState(false);
   const [stale, setStale] = useState(false);
+  const [track, setTrack] = useState<FlightTrack | null>(null);
+  const [trackRateLimited, setTrackRateLimited] = useState(false);
 
   const applyResponse = useCallback((body: FlightsResponse) => {
     setFlights(body.flights);
@@ -58,11 +60,47 @@ export default function App() {
     };
   }, [region, applyResponse, pollOnce]);
 
-  const changeRegion = useCallback((key: string) => setRegion(key as keyof typeof REGIONS), []);
+  useEffect(() => {
+    if (!selected) {
+      setTrack(null);
+      setTrackRateLimited(false);
+      return;
+    }
+    let cancelled = false;
+
+    const loadTrack = async () => {
+      try {
+        const res = await fetch(`/api/track?icao24=${selected.icao24}`);
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const body = await res.json();
+        if (!cancelled) {
+          setTrack(body.track);
+          setTrackRateLimited(Boolean(body.rateLimited));
+        }
+      } catch {
+        if (!cancelled) {
+          setTrack(null);
+          setTrackRateLimited(false);
+        }
+      }
+    };
+
+    void loadTrack();
+    const interval = setInterval(() => void loadTrack(), 60_000);
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+    };
+  }, [selected]);
+
+  const changeRegion = useCallback((key: string) => {
+    setRegion(key as keyof typeof REGIONS);
+    setSelected(null);
+  }, []);
 
   return (
     <div className="app">
-      <MapView bounds={REGIONS[region].bounds} flights={flights} track={null} onSelect={setSelected} />
+      <MapView bounds={REGIONS[region].bounds} flights={flights} track={track} onSelect={setSelected} />
       <div className="controls">
         <select value={region} onChange={(e) => changeRegion(e.target.value)}>
           {Object.entries(REGIONS).map(([key, r]) => (
@@ -83,6 +121,7 @@ export default function App() {
           <div className="row"><span>Vertical rate</span><span>{selected.verticalRate ?? "—"} m/s</span></div>
           <div className="row"><span>On ground</span><span>{selected.onGround ? "yes" : "no"}</span></div>
           <div className="row"><span>Last contact</span><span>{new Date(selected.lastContact * 1000).toLocaleTimeString()}</span></div>
+          <div className="row"><span>Track</span><span>{track ? `${track.points.length} pts` : trackRateLimited ? "refresh paused (rate limited)" : "unavailable"}</span></div>
           <div className="row"><span>Altitude (geo)</span><span>{selected.altitudeGeo ?? "—"} m</span></div>
           <div className="row"><span>Squawk</span><span>{selected.squawk ?? "—"}</span></div>
           <div className="row"><span>Position source</span><span>{selected.positionSource != null ? String(selected.positionSource) : "—"}</span></div>
