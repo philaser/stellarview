@@ -274,4 +274,14 @@ describe("App", () => {
     fireEvent.click(cb);
     expect(cb).not.toBeChecked();
   });
+
+  it("collapses and expands the controls panel via the gear button", async () => {
+    render(<App />);
+    await act(async () => {});
+    expect(document.querySelector(".controls")?.classList.contains("open")).toBe(true);
+    fireEvent.click(screen.getByLabelText("Toggle filters"));
+    expect(document.querySelector(".controls")?.classList.contains("closed")).toBe(true);
+    fireEvent.click(screen.getByLabelText("Toggle filters"));
+    expect(document.querySelector(".controls")?.classList.contains("open")).toBe(true);
+  });
 });

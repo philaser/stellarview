@@ -68,6 +68,30 @@ export default function MapView({
       }
       onSelectRef.current((props.catnr as number) ?? -1);
     });
+    let hoveredId: number | null = null;
+    const clearHover = () => {
+      if (hoveredId !== null) {
+        map.setFeatureState({ source: "satellites", id: hoveredId }, { hover: false });
+        hoveredId = null;
+      }
+    };
+    map.on("mousemove", (e) => {
+      const features = map.queryRenderedFeatures(e.point, { layers: ["satellites-layer"] });
+      const hit = features.length > 0 ? ((features[0].properties?.catnr as number) ?? null) : null;
+      if (hit === hoveredId) return;
+      clearHover();
+      if (hit !== null) {
+        map.setFeatureState({ source: "satellites", id: hit }, { hover: true });
+        hoveredId = hit;
+        map.getCanvas().style.cursor = "pointer";
+      } else {
+        map.getCanvas().style.cursor = "";
+      }
+    });
+    map.on("mouseleave", () => {
+      clearHover();
+      map.getCanvas().style.cursor = "";
+    });
     map.on("move", () => {
       if (mapRef.current !== map) return;
       const b = map.getBounds();
@@ -105,6 +129,7 @@ export default function MapView({
       )
       .map((p) => ({
         type: "Feature",
+        id: p.catnr,
         properties: { ...p },
         geometry: { type: "Point", coordinates: [p.lon, p.lat] },
       }));
@@ -122,14 +147,14 @@ export default function MapView({
             "interpolate",
             ["linear"],
             ["zoom"],
-            0,
-            ["case", ["get", "selected"], 6, 4],
+            5,
+            ["case", ["boolean", ["feature-state", "hover"], false], 5, ["get", "selected"], 5, 2],
             10,
-            ["case", ["get", "selected"], 14, 9],
+            ["case", ["boolean", ["feature-state", "hover"], false], 8, ["get", "selected"], 6, 3.5],
           ],
           "circle-color": ["get", "color"],
-          "circle-stroke-color": "#ffffff",
-          "circle-stroke-width": ["case", ["get", "selected"], 3, 2],
+          "circle-stroke-color": ["case", ["get", "selected"], "#ffffff", "rgba(15, 23, 42, 0.6)"],
+          "circle-stroke-width": ["case", ["get", "selected"], 1.5, 0.5],
         },
       });
     } else {
@@ -227,7 +252,7 @@ export default function MapView({
 
     const orbitFeatures: GeoJSON.Feature[] = Object.entries(orbits).map(([catnr, coords]) => ({
       type: "Feature",
-      properties: { color: "#64748b" },
+      properties: { color: "#a855f7" },
       geometry: { type: "LineString", coordinates: coords },
     }));
     const orbitData: GeoJSON.FeatureCollection = { type: "FeatureCollection", features: orbitFeatures };
@@ -239,11 +264,34 @@ export default function MapView({
         type: "line",
         source: "orbits",
         layout: { "line-cap": "round", "line-join": "round" },
-        paint: { "line-color": ["get", "color"], "line-width": 1, "line-opacity": 0.5, "line-dasharray": [2, 1] },
+        paint: {
+          "line-color": "#a855f7",
+          "line-width": 1.5,
+          "line-opacity": 0.9,
+          "line-dasharray": [3, 2],
+        },
       });
     } else {
       (map.getSource("orbits") as maplibregl.GeoJSONSource).setData(orbitData);
     }
+  }, [orbits, styleLoaded]);
+
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !styleLoaded || Object.keys(orbits).length === 0) return;
+    let phase = 0;
+    let rafId = 0;
+    const tick = () => {
+      phase = (phase + 1) % 10;
+      try {
+        map.setPaintProperty("orbits-layer", "line-dasharray", [3, 2, phase, 2]);
+      } catch {
+        // layer not ready; retry next frame
+      }
+      rafId = requestAnimationFrame(tick);
+    };
+    rafId = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(rafId);
   }, [orbits, styleLoaded]);
 
   useEffect(() => {

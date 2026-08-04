@@ -16,9 +16,25 @@ html, body, #root { height: 100%; margin: 0; }
 .panel h2 { margin: 0 0 8px; font-size: 15px; }
 .panel .row { display: flex; justify-content: space-between; gap: 8px; }
 .panel .row span:first-child { color: #9ca3af; }
-.controls {
+.gear-button {
   position: absolute;
   top: 12px;
+  left: 12px;
+  z-index: 10;
+  width: 36px;
+  height: 36px;
+  background: rgba(17, 24, 39, 0.92);
+  color: #e5e7eb;
+  border: 1px solid #374151;
+  border-radius: 8px;
+  font-size: 18px;
+  line-height: 1;
+  cursor: pointer;
+}
+.gear-button:hover { color: #60a5fa; }
+.controls {
+  position: absolute;
+  top: 56px;
   left: 12px;
   display: flex;
   flex-direction: column;
@@ -27,7 +43,11 @@ html, body, #root { height: 100%; margin: 0; }
   background: rgba(17, 24, 39, 0.92);
   border-radius: 8px;
   padding: 10px;
+  transition: max-height 0.3s ease, opacity 0.3s ease, padding 0.3s ease;
+  overflow: hidden;
 }
+.controls.open { max-height: 420px; opacity: 1; }
+.controls.closed { max-height: 0; padding-top: 0; padding-bottom: 0; opacity: 0; pointer-events: none; }
 .controls select, .controls button {
   background: rgba(17, 24, 39, 0.92);
   color: #e5e7eb;

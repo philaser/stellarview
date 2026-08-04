@@ -34,6 +34,7 @@ export default function App() {
   const [focus, setFocus] = useState<{ catnr: number; ts: number } | null>(null);
   const [night, setNight] = useState<[number, number][] | null>(null);
   const [showNight, setShowNight] = useState(true);
+  const [controlsOpen, setControlsOpen] = useState(true);
 
   useEffect(() => {
     const update = () => setNight(nightPolygon(new Date()));
@@ -201,7 +202,15 @@ export default function App() {
         focus={focus}
         night={showNight ? night : null}
       />
-      <div className="controls">
+      <button
+        className="gear-button"
+        aria-label="Toggle filters"
+        title="Filters"
+        onClick={() => setControlsOpen((o) => !o)}
+      >
+        ⚙
+      </button>
+      <div className={`controls ${controlsOpen ? "open" : "closed"}`}>
         <div className="filter-group">
           <div className="filter-group-header">
             <span>Regime</span>
