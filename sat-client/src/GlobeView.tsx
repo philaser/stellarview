@@ -24,6 +24,17 @@ export function dotSizeFor(distance: number, refDist: number, base: number): num
   return Math.min(MAX_DOT_SIZE, Math.max(MIN_DOT_SIZE, scaled));
 }
 
+/** Linear interpolation between two per-satellite world-coord snapshots, written into `out` (reused across frames). */
+export function lerpWorldPositions(
+  prev: Float32Array,
+  current: Float32Array,
+  t: number,
+  out: Float32Array
+): Float32Array {
+  for (let i = 0; i < out.length; i++) out[i] = prev[i] + (current[i] - prev[i]) * t;
+  return out;
+}
+
 // Screen-space picking radii (px) around the cursor; the nearest projected dot wins.
 const HOVER_THRESHOLD = 8;
 const CLICK_THRESHOLD = 12;
@@ -95,6 +106,18 @@ export default function GlobeView({ positions, satNames, selectedOrbit, selected
   satNamesRef.current = satNames;
   const worldCoordsRef = useRef<Float32Array>(new Float32Array(0));
   const dotSizeRef = useRef(BASE_SIZE);
+  // Interpolation state between the last two 2s position snapshots: `worldPrevRef` holds the previous
+  // snapshot's world coords, `worldCurRef` the current one; the rAF loop lerps them into a single
+  // reused output buffer (no allocation per frame). lat/lng snapshots feed the label glide.
+  const worldPrevRef = useRef<Float32Array>(new Float32Array(0));
+  const worldCurRef = useRef<Float32Array>(new Float32Array(0));
+  const lerpOutRef = useRef<Float32Array>(new Float32Array(0));
+  const latLngPrevRef = useRef<Float32Array>(new Float32Array(0));
+  const latLngCurRef = useRef<Float32Array>(new Float32Array(0));
+  const tickAtRef = useRef(0);
+  const hasSnapshotRef = useRef(false);
+  const labelIdxRef = useRef(-1);
+  const highlightIdxRef = useRef(-1);
   // Single mutable label entry: position ticks mutate it in place so three-globe re-reads the
   // accessors next frame instead of re-creating the label layer (which would flicker every tick).
   const labelEntryRef = useRef<{ lat: number; lng: number; catnr: number; altKm: number } | null>(null);
@@ -237,7 +260,45 @@ export default function GlobeView({ positions, satNames, selectedOrbit, selected
 
     globeRef.current = globe;
 
+    // Per-frame interpolation: dots glide from the previous snapshot to the current one over the 2s
+    // poll window instead of stepping (LEO moves only a few pixels per 2s, so a linear short-arc glide
+    // is visually smooth and far cheaper than per-frame SGP4 for the whole catalog).
+    let rafId = 0;
+    const frame = () => {
+      const base = baseRef.current;
+      const n = worldCurRef.current.length / 3;
+      if (base && n > 0) {
+        const t = Math.min(1, Math.max(0, (performance.now() - tickAtRef.current) / 2000));
+        lerpWorldPositions(worldPrevRef.current, worldCurRef.current, t, lerpOutRef.current);
+        const posAttr = base.geometry.attributes.position as THREE.BufferAttribute;
+        (posAttr.array as Float32Array).set(lerpOutRef.current);
+        posAttr.needsUpdate = true;
+        // picking and the visual-check harness project the *visible* (interpolated) dots
+        worldCoordsRef.current = lerpOutRef.current;
+
+        const hi = highlightIdxRef.current;
+        const highlight = highlightRef.current;
+        if (hi >= 0 && highlight?.visible) {
+          const hp = highlight.geometry.attributes.position as THREE.BufferAttribute;
+          hp.setXYZ(0, lerpOutRef.current[hi * 3], lerpOutRef.current[hi * 3 + 1], lerpOutRef.current[hi * 3 + 2]);
+          hp.needsUpdate = true;
+        }
+
+        const entry = labelEntryRef.current;
+        const li = labelIdxRef.current;
+        if (entry && li >= 0) {
+          const lp = latLngPrevRef.current;
+          const lc = latLngCurRef.current;
+          entry.lat = lp[li * 2] + (lc[li * 2] - lp[li * 2]) * t;
+          entry.lng = lp[li * 2 + 1] + (lc[li * 2 + 1] - lp[li * 2 + 1]) * t;
+        }
+      }
+      rafId = requestAnimationFrame(frame);
+    };
+    rafId = requestAnimationFrame(frame);
+
     return () => {
+      cancelAnimationFrame(rafId);
       container.removeEventListener("pointermove", onPointerMove);
       container.removeEventListener("click", onClick);
       controls.removeEventListener("change", applySize);
@@ -255,11 +316,14 @@ export default function GlobeView({ positions, satNames, selectedOrbit, selected
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Snapshot bookkeeping: a new `positions` array starts a fresh 2s interpolation epoch. The old
+  // snapshot is shifted into the "prev" buffers and new world coords are computed into "cur"; the rAF
+  // loop lerps prev -> cur so dots glide. Continuity is free: at arrival t restarts at 0, where the
+  // lerp equals the old current snapshot.
   useEffect(() => {
     const globe = globeRef.current;
     const base = baseRef.current;
-    const highlight = highlightRef.current;
-    if (!globe || !base || !highlight) return;
+    if (!globe || !base) return;
 
     // Grow the buffer if the catalog shrank below its steady-state size on first mount.
     if (positions.length > base.geometry.attributes.position.count) {
@@ -274,46 +338,81 @@ export default function GlobeView({ positions, satNames, selectedOrbit, selected
       });
     }
 
+    const n = positions.length;
+    const hadPrev = hasSnapshotRef.current && worldCurRef.current.length === n * 3;
+    if (worldCurRef.current.length !== n * 3) {
+      worldPrevRef.current = new Float32Array(n * 3);
+      worldCurRef.current = new Float32Array(n * 3);
+      lerpOutRef.current = new Float32Array(n * 3);
+      latLngPrevRef.current = new Float32Array(n * 2);
+      latLngCurRef.current = new Float32Array(n * 2);
+    }
+    const prev = worldPrevRef.current;
+    const cur = worldCurRef.current;
+    const lprev = latLngPrevRef.current;
+    const lcur = latLngCurRef.current;
+    if (hadPrev) {
+      prev.set(cur);
+      lprev.set(lcur);
+    }
+
     const posAttr = base.geometry.attributes.position as THREE.BufferAttribute;
     const colorAttr = base.geometry.attributes.color as THREE.BufferAttribute;
     const tmpColor = new THREE.Color();
-    // Cache world coords so pointer events can project to screen without re-reading the GPU buffer.
-    const world = new Float32Array(positions.length * 3);
     positions.forEach((p, i) => {
       const c = globe.getCoords(p.lat, p.lon, altR(p.altKm));
+      cur[i * 3] = c.x;
+      cur[i * 3 + 1] = c.y;
+      cur[i * 3 + 2] = c.z;
+      lcur[i * 2] = p.lat;
+      lcur[i * 2 + 1] = p.lon;
       posAttr.setXYZ(i, c.x, c.y, c.z);
-      world[i * 3] = c.x;
-      world[i * 3 + 1] = c.y;
-      world[i * 3 + 2] = c.z;
       tmpColor.set(p.color ?? "#e5e7eb");
       colorAttr.setXYZ(i, tmpColor.r, tmpColor.g, tmpColor.b);
     });
-    worldCoordsRef.current = world;
+    // First snapshot (or resized catalog): hold at the current position instead of gliding from nowhere.
+    if (!hadPrev) {
+      prev.set(cur);
+      lprev.set(lcur);
+    }
+    hasSnapshotRef.current = true;
+    worldCoordsRef.current = cur;
+    tickAtRef.current = performance.now();
     posAttr.needsUpdate = true;
     colorAttr.needsUpdate = true;
-
-    // Highlight layer shows hovered or selected (hover wins), whichever applies.
-    const shown = hoveredCatnr ?? selectedCatnr;
-    const sat = shown != null ? positions.find((p) => p.catnr === shown) : undefined;
-    if (sat) {
-      const c = globe.getCoords(sat.lat, sat.lon, altR(sat.altKm));
-      const hp = highlight.geometry.attributes.position as THREE.BufferAttribute;
-      hp.setXYZ(0, c.x, c.y, c.z);
-      hp.needsUpdate = true;
-      highlight.visible = true;
-    } else {
-      highlight.visible = false;
-    }
 
     // Mutate the single label entry in place (no labelsData call) so the label glides with the sat.
     const labelEntry = labelEntryRef.current;
     if (labelEntry) {
-      const sel = positions.find((p) => p.catnr === labelEntry.catnr);
-      if (sel) {
-        labelEntry.lat = sel.lat;
-        labelEntry.lng = sel.lon;
-        labelEntry.altKm = sel.altKm;
+      const idx = positions.findIndex((p) => p.catnr === labelEntry.catnr);
+      labelIdxRef.current = idx;
+      if (idx >= 0) {
+        const p = positions[idx];
+        labelEntry.lat = p.lat;
+        labelEntry.lng = p.lon;
+        labelEntry.altKm = p.altKm;
       }
+    }
+  }, [positions]);
+
+  // Highlight layer shows hovered or selected (hover wins); the rAF loop keeps its position lerped
+  // between snapshots using the index stored here.
+  useEffect(() => {
+    const highlight = highlightRef.current;
+    if (!highlight) return;
+    const shown = hoveredCatnr ?? selectedCatnr;
+    const idx = shown != null ? positions.findIndex((p) => p.catnr === shown) : -1;
+    highlightIdxRef.current = idx;
+    if (idx >= 0) {
+      const cur = worldCurRef.current;
+      if (cur.length >= (idx + 1) * 3) {
+        const hp = highlight.geometry.attributes.position as THREE.BufferAttribute;
+        hp.setXYZ(0, cur[idx * 3], cur[idx * 3 + 1], cur[idx * 3 + 2]);
+        hp.needsUpdate = true;
+      }
+      highlight.visible = true;
+    } else {
+      highlight.visible = false;
     }
   }, [positions, selectedCatnr, hoveredCatnr]);
 
@@ -322,11 +421,13 @@ export default function GlobeView({ positions, satNames, selectedOrbit, selected
     const globe = globeRef.current;
     if (!globe) return;
     if (selectedCatnr == null) {
+      labelIdxRef.current = -1;
       labelEntryRef.current = null;
       globe.labelsData([]);
       return;
     }
     const sat = positionsRef.current.find((p) => p.catnr === selectedCatnr);
+    labelIdxRef.current = sat ? positionsRef.current.indexOf(sat) : -1;
     const entry = sat ? { lat: sat.lat, lng: sat.lon, catnr: sat.catnr, altKm: sat.altKm } : null;
     labelEntryRef.current = entry;
     globe.labelsData(entry ? [entry] : []);

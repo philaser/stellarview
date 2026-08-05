@@ -1,16 +1,19 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, fireEvent } from "@testing-library/react";
-import GlobeView, { findNearest, dotSizeFor } from "../src/GlobeView";
+import GlobeView, { findNearest, dotSizeFor, lerpWorldPositions } from "../src/GlobeView";
 
-const { createdPoints, sceneAdd, controlsListeners, cameraState, labelsDataMock, labelTextAccessor } = vi.hoisted(() => ({
-  createdPoints: [] as any[],
-  sceneAdd: vi.fn(),
-  controlsListeners: {} as Record<string, (() => void) | null>,
-  // camera sits 10 units from the globe origin at the initial pointOfView (refDist = 10)
-  cameraState: { x: 0, y: 0, z: 10 },
-  labelsDataMock: vi.fn(),
-  labelTextAccessor: { current: null as ((d: unknown) => string) | null },
-}));
+const { createdPoints, sceneAdd, controlsListeners, cameraState, labelsDataMock, labelTextAccessor, rafCallbacks } =
+  vi.hoisted(() => ({
+    createdPoints: [] as any[],
+    sceneAdd: vi.fn(),
+    controlsListeners: {} as Record<string, (() => void) | null>,
+    // camera sits 10 units from the globe origin at the initial pointOfView (refDist = 10)
+    cameraState: { x: 0, y: 0, z: 10 },
+    labelsDataMock: vi.fn(),
+    labelTextAccessor: { current: null as ((d: unknown) => string) | null },
+    // captured rAF callbacks so tests can drive the interpolation loop frame-by-frame
+    rafCallbacks: [] as FrameRequestCallback[],
+  }));
 
 const config: Record<string, unknown> = {};
 
@@ -237,7 +240,7 @@ const mapRect = () =>
   }) as DOMRect;
 
 const renderGlobe = (props: Partial<Parameters<typeof GlobeView>[0]> = {}) => {
-  const { container } = render(
+  const { container, rerender } = render(
     <GlobeView
       positions={positions}
       satNames={satNames}
@@ -249,7 +252,7 @@ const renderGlobe = (props: Partial<Parameters<typeof GlobeView>[0]> = {}) => {
   );
   const mapEl = container.querySelector(".map")!;
   mapEl.getBoundingClientRect = mapRect;
-  return { container, mapEl };
+  return { container, mapEl, rerender };
 };
 
 describe("findNearest", () => {
@@ -266,6 +269,32 @@ describe("findNearest", () => {
   it("picks the nearest dot when two are within the threshold", () => {
     const projected = [{ x: 100, y: 100 }, { x: 106, y: 100 }];
     expect(findNearest(projected, 100, 100, 8)).toBe(0);
+  });
+});
+
+describe("lerpWorldPositions", () => {
+  it("returns prev values at t=0", () => {
+    const prev = new Float32Array([1, 2, 3, 4, 5, 6]);
+    const cur = new Float32Array([7, 8, 9, 10, 11, 12]);
+    const out = new Float32Array(6);
+    expect(lerpWorldPositions(prev, cur, 0, out)).toBe(out);
+    expect(Array.from(out)).toEqual([1, 2, 3, 4, 5, 6]);
+  });
+
+  it("returns current values at t=1", () => {
+    const prev = new Float32Array([1, 2, 3, 4, 5, 6]);
+    const cur = new Float32Array([7, 8, 9, 10, 11, 12]);
+    const out = new Float32Array(6);
+    lerpWorldPositions(prev, cur, 1, out);
+    expect(Array.from(out)).toEqual([7, 8, 9, 10, 11, 12]);
+  });
+
+  it("returns midpoints at t=0.5", () => {
+    const prev = new Float32Array([0, 10, 20]);
+    const cur = new Float32Array([2, 14, 30]);
+    const out = new Float32Array(3);
+    lerpWorldPositions(prev, cur, 0.5, out);
+    expect(Array.from(out)).toEqual([1, 12, 25]);
   });
 });
 
@@ -311,6 +340,13 @@ describe("GlobeView", () => {
       }
     );
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: true, json: async () => ({ features: [] }) }));
+    // Capture rAF callbacks so no real frames auto-fire; the interpolation test drives them explicitly.
+    rafCallbacks.length = 0;
+    vi.stubGlobal("requestAnimationFrame", (cb: FrameRequestCallback) => {
+      rafCallbacks.push(cb);
+      return rafCallbacks.length;
+    });
+    vi.stubGlobal("cancelAnimationFrame", vi.fn());
   });
 
   it("renders satellites as a single base Points layer with altitude-normalized positions", () => {
@@ -431,5 +467,47 @@ describe("GlobeView", () => {
     expect(base.material.size).toBe(dotSizeFor(5, 10, 0.02));
     expect(base.material.size).toBeGreaterThan(0.02);
     expect(highlight.material.size).toBeCloseTo(base.material.size * 4, 5);
+  });
+
+  it("glides base dots, the highlight and the label between snapshots via the rAF loop", () => {
+    let now = 1000;
+    const nowSpy = vi.spyOn(performance, "now").mockImplementation(() => now);
+
+    const { rerender } = renderGlobe({ selectedCatnr: 1 });
+    const base = createdPoints.find((p) => p.geometry.attributes.position.count === 2)!;
+    const highlight = createdPoints.find((p) => p.geometry.attributes.position.count === 1)!;
+    const posAttr = base.geometry.attributes.position;
+    const hp = highlight.geometry.attributes.position;
+
+    // new snapshot arrives: sat 0 moves (+2 lat, +2 lon), sat 1 stays put
+    const moved = positions.map((p, i) => (i === 0 ? { ...p, lat: p.lat + 2, lon: p.lon + 2 } : p));
+    rerender(
+      <GlobeView positions={moved} satNames={satNames} selectedOrbit={null} selectedCatnr={1} onSelect={() => {}} />
+    );
+
+    now += 1000; // halfway through the 2s window -> t = 0.5
+    const cb = rafCallbacks.shift()!;
+    cb(now);
+
+    // lerped world coords (mock getCoords maps lon/lat/alt -> x/y/z): sat 0 at the midpoint (21, 11)
+    expect(posAttr.array[0]).toBeCloseTo(21, 5);
+    expect(posAttr.array[1]).toBeCloseTo(11, 5);
+    expect(posAttr.array[2]).toBeCloseTo(420 / 6371, 5); // altitude is unchanged
+    expect(posAttr.needsUpdate).toBe(true);
+    // sat 1 did not move, so it sits exactly at its snapshot position
+    expect(posAttr.array[3]).toBeCloseTo(60, 5);
+    expect(posAttr.array[4]).toBeCloseTo(-30, 5);
+
+    // the highlight tracks the same lerped position for the selected sat
+    expect(hp.array[0]).toBeCloseTo(21, 5);
+    expect(hp.array[1]).toBeCloseTo(11, 5);
+
+    // the label glides between the previous and current lat/lngs
+    const labelCalls = labelsDataMock.mock.calls.filter((c) => (c[0] as unknown[]).length > 0);
+    const entry = (labelCalls[0][0] as unknown[])[0] as { lat: number; lng: number };
+    expect(entry.lat).toBeCloseTo(11, 5);
+    expect(entry.lng).toBeCloseTo(21, 5);
+
+    nowSpy.mockRestore();
   });
 });
