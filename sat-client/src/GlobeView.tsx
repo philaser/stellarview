@@ -27,6 +27,8 @@ export default function GlobeView({ positions, selectedOrbit, selectedCatnr, onS
 
   useEffect(() => {
     const globe = new Globe(containerRef.current!, { rendererConfig: { antialias: true } });
+    // dev/verification handle for the visual-check harness
+    (window as { __ftGlobe?: unknown }).__ftGlobe = globe;
     globe
       .backgroundColor("#050816")
       .showAtmosphere(true)
