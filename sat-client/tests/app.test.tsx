@@ -164,6 +164,20 @@ vi.mock("three", () => {
     b = 1;
     set() {}
   }
+  class Vector3 {
+    x = 0;
+    y = 0;
+    z = 0;
+    set(x: number, y: number, z: number) {
+      this.x = x;
+      this.y = y;
+      this.z = z;
+      return this;
+    }
+    project() {
+      return this;
+    }
+  }
   class Vector2 {
     x: number;
     y: number;
@@ -179,6 +193,7 @@ vi.mock("three", () => {
     Points,
     Raycaster,
     Color,
+    Vector3,
     Vector2,
     DynamicDrawUsage: Symbol("DynamicDrawUsage"),
   };
@@ -203,6 +218,12 @@ afterEach(() => {
   vi.useRealTimers();
 });
 
+// The app now defaults to 3D; tests exercising the 2D map click/feature flow switch first.
+const switchTo2d = async () => {
+  fireEvent.click(screen.getByRole("button", { name: /toggle 3d mode/i }));
+  await act(async () => {});
+};
+
 describe("App", () => {
   it("fetches the TLE list on load and reports N/M satellites", async () => {
     render(<App />);
@@ -222,6 +243,7 @@ describe("App", () => {
     );
     render(<App />);
     await act(async () => {});
+    await switchTo2d();
     await act(async () => {
       vi.advanceTimersByTime(2000);
     });
@@ -234,6 +256,7 @@ describe("App", () => {
   it("sets the observer point on empty-map click", async () => {
     render(<App />);
     await act(async () => {});
+    await switchTo2d();
     await act(async () => {
       vi.advanceTimersByTime(2000);
     });
@@ -245,7 +268,8 @@ describe("App", () => {
   });
 
   it("shows a banner when the TLE fetch fails", async () => {
-    vi.mocked(fetch).mockRejectedValueOnce(new Error("network"));
+    // reject every fetch: the 3D globe's countries fetch is decorative and swallowed, the TLE fetch drives the banner
+    vi.mocked(fetch).mockRejectedValue(new Error("network"));
     render(<App />);
     await act(async () => {});
     expect(screen.getByText("TLE provider unreachable")).toBeInTheDocument();
@@ -254,6 +278,7 @@ describe("App", () => {
   it("flags the selected satellite's dot feature", async () => {
     render(<App />);
     await act(async () => {});
+    await switchTo2d();
     await act(async () => {
       loadHandler!();
     });
@@ -280,6 +305,7 @@ describe("App", () => {
   it("shows Visible now and a Follow toggle in the panel", async () => {
     render(<App />);
     await act(async () => {});
+    await switchTo2d();
     await act(async () => { vi.advanceTimersByTime(2000); });
     await act(async () => {
       capturedClick!({ point: { x: 0, y: 0 } });
@@ -291,6 +317,7 @@ describe("App", () => {
   it("toggles follow mode on and clears it on close", async () => {
     render(<App />);
     await act(async () => {});
+    await switchTo2d();
     await act(async () => { vi.advanceTimersByTime(2000); });
     await act(async () => {
       capturedClick!({ point: { x: 0, y: 0 } });
@@ -304,6 +331,7 @@ describe("App", () => {
   it("hides GEO satellites when the GEO regime is unchecked", async () => {
     render(<App />);
     await act(async () => {});
+    await switchTo2d();
     await act(async () => {
       loadHandler!();
     });
@@ -319,6 +347,7 @@ describe("App", () => {
   it("narrows by search", async () => {
     render(<App />);
     await act(async () => {});
+    await switchTo2d();
     await act(async () => {
       loadHandler!();
     });
@@ -332,6 +361,7 @@ describe("App", () => {
   it("deselects when the selected satellite is filtered out", async () => {
     render(<App />);
     await act(async () => {});
+    await switchTo2d();
     await act(async () => {
       capturedClick!({ point: { x: 0, y: 0 } }); // selects ISS
     });
@@ -352,6 +382,7 @@ describe("App", () => {
   it("toggles all regimes off and back on via the None/All shortcuts", async () => {
     render(<App />);
     await act(async () => {});
+    await switchTo2d();
     await act(async () => { loadHandler!(); });
     fireEvent.click(screen.getByRole("button", { name: /regimes: none/i }));
     await act(async () => { vi.advanceTimersByTime(2000); });
@@ -376,6 +407,7 @@ describe("App", () => {
   it("wraps the observer longitude into ±180", async () => {
     render(<App />);
     await act(async () => {});
+    await switchTo2d();
     clickHitsFeature = false;
     await act(async () => {
       capturedClick!({ lngLat: { lng: 293.78, lat: 48.86 } });
@@ -405,9 +437,8 @@ describe("App", () => {
   it("toggles between 2D and 3D modes", async () => {
     render(<App />);
     await act(async () => {});
+    expect(screen.getByText("2D mode")).toBeInTheDocument(); // app defaults to 3D
     fireEvent.click(screen.getByRole("button", { name: /toggle 3d mode/i }));
-    expect(screen.getByText("2D mode")).toBeInTheDocument();
-    fireEvent.click(screen.getByText("2D mode"));
     expect(screen.getByText("3D mode")).toBeInTheDocument();
   });
 });

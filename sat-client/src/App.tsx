@@ -36,7 +36,7 @@ export default function App() {
   const [night, setNight] = useState<[number, number][] | null>(null);
   const [showNight, setShowNight] = useState(true);
   const [controlsOpen, setControlsOpen] = useState(true);
-  const [mode, setMode] = useState<"2d" | "3d">("2d");
+  const [mode, setMode] = useState<"2d" | "3d">("3d");
 
   useEffect(() => {
     const update = () => setNight(nightPolygon(new Date()));
@@ -93,6 +93,8 @@ export default function App() {
       .filter((s) => s.name.toLowerCase().includes(q) || String(s.catnr).includes(q))
       .slice(0, 20);
   }, [sats, search]);
+
+  const satNames = useMemo(() => Object.fromEntries(sats.map((s) => [s.catnr, s.name])), [sats]);
 
   // Orbit data for the selected satellite only (ground tracks for the whole ~16k catalog would be prohibitive).
   useEffect(() => {
@@ -208,6 +210,7 @@ export default function App() {
       ) : (
         <GlobeView
           positions={positions}
+          satNames={satNames}
           selectedOrbit={selected && orbits[selected.catnr] ? orbits[selected.catnr] : null}
           selectedCatnr={selectedCatnr}
           onSelect={setSelectedCatnr}

@@ -1,10 +1,9 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, fireEvent } from "@testing-library/react";
-import GlobeView from "../src/GlobeView";
+import GlobeView, { findNearest } from "../src/GlobeView";
 
-const { createdPoints, raycasters, sceneAdd } = vi.hoisted(() => ({
+const { createdPoints, sceneAdd } = vi.hoisted(() => ({
   createdPoints: [] as any[],
-  raycasters: [] as any[],
   sceneAdd: vi.fn(),
 }));
 
@@ -157,29 +156,28 @@ vi.mock("three", () => {
       createdPoints.push(this);
     }
   }
-  class Raycaster {
-    params = { Points: { threshold: 1 } };
-    hits: Array<{ index: number | null }> = [];
-    setFromCamera() {}
-    intersectObject() {
-      return this.hits;
-    }
-    constructor() {
-      raycasters.push(this);
-    }
-  }
   class Color {
     r = 1;
     g = 1;
     b = 1;
     set() {}
   }
-  class Vector2 {
-    x: number;
-    y: number;
-    constructor(x = 0, y = 0) {
+  class Vector3 {
+    x = 0;
+    y = 0;
+    z = 0;
+    set(x: number, y: number, z: number) {
       this.x = x;
       this.y = y;
+      this.z = z;
+      return this;
+    }
+    project() {
+      // Deterministic NDC so the screen-space hit path works in jsdom.
+      this.x = this.x / 100;
+      this.y = this.y / 100;
+      this.z = 0;
+      return this;
     }
   }
   return {
@@ -187,9 +185,8 @@ vi.mock("three", () => {
     BufferGeometry,
     PointsMaterial,
     Points,
-    Raycaster,
     Color,
-    Vector2,
+    Vector3,
     DynamicDrawUsage: Symbol("DynamicDrawUsage"),
   };
 });
@@ -199,17 +196,75 @@ const positions = [
   { catnr: 2, lat: -30, lon: 60, altKm: 35786, velocityKms: 3.1, color: "#fbbf24", selected: false },
 ];
 
+const satNames = { 1: "Sat One", 2: "Sat Two" };
+
+// 800x600 container rect so screen-space projection yields deterministic pixels.
+const mapRect = () =>
+  ({
+    x: 0,
+    y: 0,
+    top: 0,
+    left: 0,
+    right: 800,
+    bottom: 600,
+    width: 800,
+    height: 600,
+  }) as DOMRect;
+
+const renderGlobe = (props: Partial<Parameters<typeof GlobeView>[0]> = {}) => {
+  const { container } = render(
+    <GlobeView
+      positions={positions}
+      satNames={satNames}
+      selectedOrbit={null}
+      selectedCatnr={null}
+      onSelect={() => {}}
+      {...props}
+    />
+  );
+  const mapEl = container.querySelector(".map")!;
+  mapEl.getBoundingClientRect = mapRect;
+  return { container, mapEl };
+};
+
+describe("findNearest", () => {
+  it("hits a projected dot inside the threshold", () => {
+    const projected = [{ x: 100, y: 100 }, { x: 500, y: 500 }];
+    expect(findNearest(projected, 105, 100, 8)).toBe(0); // 5px away
+  });
+
+  it("misses when every dot is outside the threshold", () => {
+    const projected = [{ x: 100, y: 100 }, { x: 500, y: 500 }];
+    expect(findNearest(projected, 200, 100, 8)).toBe(-1);
+  });
+
+  it("picks the nearest dot when two are within the threshold", () => {
+    const projected = [{ x: 100, y: 100 }, { x: 106, y: 100 }];
+    expect(findNearest(projected, 100, 100, 8)).toBe(0);
+  });
+});
+
 describe("GlobeView", () => {
   beforeEach(() => {
     createdPoints.length = 0;
-    raycasters.length = 0;
     sceneAdd.mockClear();
     for (const k of Object.keys(config)) delete config[k];
+    // jsdom has no PointerEvent; the component listens for pointermove, so give it a MouseEvent-backed one.
+    vi.stubGlobal(
+      "PointerEvent",
+      class PointerEvent extends MouseEvent {
+        constructor(type: string, init: PointerEventInit = {}) {
+          super(type, init);
+        }
+      }
+    );
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: true, json: async () => ({ features: [] }) }));
   });
 
   it("renders satellites as a single base Points layer with altitude-normalized positions", () => {
-    render(<GlobeView positions={positions} selectedOrbit={null} selectedCatnr={null} onSelect={() => {}} />);
+    render(
+      <GlobeView positions={positions} satNames={satNames} selectedOrbit={null} selectedCatnr={null} onSelect={() => {}} />
+    );
     const base = createdPoints.find((p) => p.geometry.attributes.position.count === 2);
     expect(base).toBeDefined();
     expect(base.material.size).toBe(0.012);
@@ -222,35 +277,42 @@ describe("GlobeView", () => {
     expect(config.particlesData).toBeUndefined(); // no per-satellite particle layers anymore
   });
 
-  it("reports clicks via onSelect", () => {
+  it("reports clicks via onSelect when the nearest projected dot is within the click radius", () => {
     const onSelect = vi.fn();
-    const { container } = render(
-      <GlobeView positions={positions} selectedOrbit={null} selectedCatnr={null} onSelect={onSelect} />
-    );
-    const raycaster = raycasters.at(-1)!;
-    raycaster.hits = [{ index: 1 }];
-    fireEvent.click(container.querySelector(".map")!, { clientX: 10, clientY: 10 });
+    const { mapEl } = renderGlobe({ onSelect });
+    // Sat 1 projects to (640, 390) in the 800x600 test rect.
+    fireEvent.click(mapEl, { clientX: 640, clientY: 390 });
     expect(onSelect).toHaveBeenCalledWith(2);
   });
 
-  it("highlights the hovered satellite in the highlight layer", () => {
-    const { container } = render(
-      <GlobeView positions={positions} selectedOrbit={null} selectedCatnr={null} onSelect={() => {}} />
-    );
+  it("does not select on a click far from any projected dot", () => {
+    const onSelect = vi.fn();
+    const { mapEl } = renderGlobe({ onSelect });
+    fireEvent.click(mapEl, { clientX: 50, clientY: 50 });
+    expect(onSelect).not.toHaveBeenCalled();
+  });
+
+  it("highlights the hovered satellite and shows a name tooltip", () => {
+    const { container, mapEl } = renderGlobe();
     const highlight = createdPoints.find((p) => p.geometry.attributes.position.count === 1)!;
     expect(highlight.visible).toBe(false);
-    const raycaster = raycasters.at(-1)!;
-    raycaster.hits = [{ index: 0 }];
-    fireEvent.pointerMove(container.querySelector(".map")!, { clientX: 10, clientY: 10 });
+    // Sat 0 projects to (480, 270) in the 800x600 test rect.
+    fireEvent.pointerMove(mapEl, { clientX: 480, clientY: 270 });
     expect(highlight.visible).toBe(true);
-    expect((container.querySelector(".map") as HTMLElement).style.cursor).toBe("pointer");
-    raycaster.hits = [];
-    fireEvent.pointerMove(container.querySelector(".map")!, { clientX: 5, clientY: 5 });
+    expect((mapEl as HTMLElement).style.cursor).toBe("pointer");
+    const tooltip = container.querySelector(".globe-tooltip")!;
+    expect(tooltip.classList.contains("visible")).toBe(true);
+    expect(tooltip.textContent).toBe("Sat One · 1");
+    fireEvent.pointerMove(mapEl, { clientX: 5, clientY: 5 });
     expect(highlight.visible).toBe(false);
+    expect((mapEl as HTMLElement).style.cursor).toBe("");
+    expect(tooltip.classList.contains("visible")).toBe(false);
   });
 
   it("shows the highlight layer for the selected satellite", () => {
-    render(<GlobeView positions={positions} selectedOrbit={null} selectedCatnr={2} onSelect={() => {}} />);
+    render(
+      <GlobeView positions={positions} satNames={satNames} selectedOrbit={null} selectedCatnr={2} onSelect={() => {}} />
+    );
     const highlight = createdPoints.find((p) => p.geometry.attributes.position.count === 1)!;
     expect(highlight.visible).toBe(true);
     const pos = highlight.geometry.attributes.position.array as number[];
@@ -261,6 +323,7 @@ describe("GlobeView", () => {
     render(
       <GlobeView
         positions={positions}
+        satNames={satNames}
         selectedOrbit={[[0, 10], [10, 20], [20, 30]]}
         selectedCatnr={1}
         onSelect={() => {}}
@@ -273,7 +336,9 @@ describe("GlobeView", () => {
   });
 
   it("has no path when no satellite is selected", () => {
-    render(<GlobeView positions={positions} selectedOrbit={null} selectedCatnr={null} onSelect={() => {}} />);
+    render(
+      <GlobeView positions={positions} satNames={satNames} selectedOrbit={null} selectedCatnr={null} onSelect={() => {}} />
+    );
     expect(config.pathsData).toBeUndefined();
   });
 });

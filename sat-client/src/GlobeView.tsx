@@ -14,11 +14,42 @@ const altR = (altKm: number) => Math.min(altKm / 6371, ALT_CAP);
 const BASE_SIZE = 0.012;
 const HIGHLIGHT_SIZE = 0.05;
 
+// Screen-space picking radii (px) around the cursor; the nearest projected dot wins.
+const HOVER_THRESHOLD = 8;
+const CLICK_THRESHOLD = 12;
+const TOOLTIP_OFFSET = 14;
+
 export interface GlobeViewProps {
   positions: SatDot[];
+  satNames: Record<number, string>;
   selectedOrbit: [number, number][] | null;
   selectedCatnr: number | null;
   onSelect: (catnr: number) => void;
+}
+
+export interface ScreenPoint {
+  x: number;
+  y: number;
+}
+
+interface ScreenDot extends ScreenPoint {
+  catnr: number;
+}
+
+/** Index of the projected point nearest (within `threshold` px) to (px, py), or -1 when none qualifies. */
+export function findNearest(projected: ScreenPoint[], px: number, py: number, threshold: number): number {
+  let best = -1;
+  let bestD2 = threshold * threshold;
+  for (let i = 0; i < projected.length; i++) {
+    const dx = projected[i].x - px;
+    const dy = projected[i].y - py;
+    const d2 = dx * dx + dy * dy;
+    if (d2 < bestD2) {
+      bestD2 = d2;
+      best = i;
+    }
+  }
+  return best;
 }
 
 function buildGeometry(capacity: number): THREE.BufferGeometry {
@@ -41,7 +72,7 @@ function buildPoints(capacity: number, size: number): THREE.Points {
   }));
 }
 
-export default function GlobeView({ positions, selectedOrbit, selectedCatnr, onSelect }: GlobeViewProps) {
+export default function GlobeView({ positions, satNames, selectedOrbit, selectedCatnr, onSelect }: GlobeViewProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const globeRef = useRef<InstanceType<typeof Globe> | null>(null);
   const baseRef = useRef<THREE.Points | null>(null);
@@ -50,7 +81,11 @@ export default function GlobeView({ positions, selectedOrbit, selectedCatnr, onS
   onSelectRef.current = onSelect;
   const positionsRef = useRef(positions);
   positionsRef.current = positions;
+  const satNamesRef = useRef(satNames);
+  satNamesRef.current = satNames;
+  const worldCoordsRef = useRef<Float32Array>(new Float32Array(0));
   const [hoveredCatnr, setHoveredCatnr] = useState<number | null>(null);
+  const [tooltip, setTooltip] = useState<{ x: number; y: number; text: string } | null>(null);
 
   useEffect(() => {
     const container = containerRef.current!;
@@ -94,26 +129,66 @@ export default function GlobeView({ positions, selectedOrbit, selectedCatnr, onS
     highlightRef.current = highlightPoints;
     globe.scene().add(basePoints, highlightPoints);
 
-    // Picking: raycast against the base layer; the intersection index maps to the positions array.
-    const raycaster = new THREE.Raycaster();
-    raycaster.params.Points.threshold = 2; // ~6px hit area so small dots are clickable
-    const pick = (evt: PointerEvent): number | null => {
+    // Picking: project every satellite's world coords to the container and take the nearest within a radius.
+    const tmpVec = new THREE.Vector3();
+    const projectToScreen = (rect: DOMRect): ScreenDot[] => {
+      const wc = worldCoordsRef.current;
+      const n = wc.length / 3;
+      const dots: ScreenDot[] = new Array(n);
+      for (let i = 0; i < n; i++) {
+        tmpVec.set(wc[i * 3], wc[i * 3 + 1], wc[i * 3 + 2]).project(globe.camera());
+        if (tmpVec.z > 1) {
+          // behind the camera — never a hit
+          dots[i] = { x: Number.POSITIVE_INFINITY, y: Number.POSITIVE_INFINITY, catnr: -1 };
+          continue;
+        }
+        dots[i] = {
+          x: (tmpVec.x * 0.5 + 0.5) * rect.width,
+          y: (-tmpVec.y * 0.5 + 0.5) * rect.height,
+          catnr: positionsRef.current[i]?.catnr ?? -1,
+        };
+      }
+      return dots;
+    };
+    // dev/verification handle: projected screen dots for the visual-check harness
+    (window as { __ftGlobeDots?: () => ScreenDot[] }).__ftGlobeDots = () =>
+      projectToScreen(container.getBoundingClientRect()).filter((d) => d.catnr >= 0);
+
+    const pick = (evt: PointerEvent, threshold: number): { idx: number; px: number; py: number } | null => {
       const rect = container.getBoundingClientRect();
-      const ndcX = ((evt.clientX - rect.left) / rect.width) * 2 - 1;
-      const ndcY = -((evt.clientY - rect.top) / rect.height) * 2 + 1;
-      raycaster.setFromCamera(new THREE.Vector2(ndcX, ndcY), globe.camera());
-      const hits = raycaster.intersectObject(basePoints, false);
-      return hits.length > 0 ? (hits[0].index ?? null) : null;
+      const px = evt.clientX - rect.left;
+      const py = evt.clientY - rect.top;
+      const idx = findNearest(projectToScreen(rect), px, py, threshold);
+      return idx >= 0 ? { idx, px, py } : null;
     };
     const onPointerMove = (evt: PointerEvent) => {
-      const idx = pick(evt);
-      const catnr = idx != null ? positionsRef.current[idx]?.catnr ?? null : null;
+      const hit = pick(evt, HOVER_THRESHOLD);
+      if (!hit) {
+        setHoveredCatnr(null);
+        setTooltip(null);
+        container.style.cursor = "";
+        return;
+      }
+      const catnr = positionsRef.current[hit.idx]?.catnr ?? null;
+      if (catnr == null) {
+        setHoveredCatnr(null);
+        setTooltip(null);
+        container.style.cursor = "";
+        return;
+      }
       setHoveredCatnr(catnr);
-      container.style.cursor = catnr != null ? "pointer" : "";
+      setTooltip({
+        x: hit.px + TOOLTIP_OFFSET,
+        y: hit.py + TOOLTIP_OFFSET,
+        text: `${satNamesRef.current[catnr] ?? "Unknown"} · ${catnr}`,
+      });
+      container.style.cursor = "pointer";
     };
     const onClick = (evt: PointerEvent) => {
-      const idx = pick(evt);
-      if (idx != null) onSelectRef.current(positionsRef.current[idx].catnr);
+      const hit = pick(evt, CLICK_THRESHOLD);
+      if (!hit) return;
+      const sat = positionsRef.current[hit.idx];
+      if (sat) onSelectRef.current(sat.catnr);
     };
     container.addEventListener("pointermove", onPointerMove);
     container.addEventListener("click", onClick);
@@ -173,12 +248,18 @@ export default function GlobeView({ positions, selectedOrbit, selectedCatnr, onS
     const posAttr = base.geometry.attributes.position as THREE.BufferAttribute;
     const colorAttr = base.geometry.attributes.color as THREE.BufferAttribute;
     const tmpColor = new THREE.Color();
+    // Cache world coords so pointer events can project to screen without re-reading the GPU buffer.
+    const world = new Float32Array(positions.length * 3);
     positions.forEach((p, i) => {
       const c = globe.getCoords(p.lat, p.lon, altR(p.altKm));
       posAttr.setXYZ(i, c.x, c.y, c.z);
+      world[i * 3] = c.x;
+      world[i * 3 + 1] = c.y;
+      world[i * 3 + 2] = c.z;
       tmpColor.set(p.color ?? "#e5e7eb");
       colorAttr.setXYZ(i, tmpColor.r, tmpColor.g, tmpColor.b);
     });
+    worldCoordsRef.current = world;
     posAttr.needsUpdate = true;
     colorAttr.needsUpdate = true;
 
@@ -220,5 +301,16 @@ export default function GlobeView({ positions, selectedOrbit, selectedCatnr, onS
     return () => clearInterval(interval);
   }, [selectedOrbit]);
 
-  return <div ref={containerRef} className="map" />;
+  return (
+    // globe.gl wipes the container's children on init, so the tooltip lives as a sibling of the container.
+    <div className="map-globe">
+      <div ref={containerRef} className="map" />
+      <div
+        className={tooltip ? "globe-tooltip visible" : "globe-tooltip"}
+        style={tooltip ? { left: tooltip.x, top: tooltip.y } : undefined}
+      >
+        {tooltip?.text}
+      </div>
+    </div>
+  );
 }
