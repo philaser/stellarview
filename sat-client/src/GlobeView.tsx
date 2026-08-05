@@ -14,10 +14,10 @@ const ALT_CAP = 0.35;
 const altR = (altKm: number) => Math.min(altKm / 6371, ALT_CAP);
 
 // Point sizes in globe-radius units; dots gently grow as the camera zooms in (~2-5px dots at the
-// default camera, up to a visible 9% of the globe radius). Highlight stays 5x the base size and
-// the glow halo ~4.5x so the selection reads distinctly from the trajectory head.
+// default camera, up to a visible 9% of the globe radius). The selected dot is a separate pixel-
+// constant highlight (sizeAttenuation: false) so it stays a fixed 14px on screen at any zoom, and
+// the glow halo ~7x the dot's world size so the halo clearly surrounds the selection.
 const BASE_SIZE = 0.02;
-const HIGHLIGHT_FACTOR = 5;
 const MIN_DOT_SIZE = 0.01;
 const MAX_DOT_SIZE = 0.09;
 const SIZE_CURVE = 0.35;
@@ -26,13 +26,15 @@ const SIZE_CURVE = 0.35;
 // (sharp white-hot head fading to a dim green tail) loops around the ring every frame to show
 // direction of travel; Line2 renders with depth testing so the far side is occluded by the globe.
 const ORBIT_ALTITUDE = 0.07;
-const ORBIT_LINE_WIDTH = 5;
+const ORBIT_LINE_WIDTH = 6;
 const ORBIT_PHASE_STEP = 0.02;
 
 // Selected-satellite highlight: pulsing green dot (#22ff88) plus a soft radial-gradient halo sprite
-// that breathes with the same ~3.8s phase so the selection reads as a strong pulsing blob.
+// that breathes with the same ~3.8s phase so the selection reads as a strong pulsing blob. The dot
+// is pixel-sized (sizeAttenuation: false) so it is the same size on screen at every zoom.
 const HIGHLIGHT_RGB: [number, number, number] = [0.13, 1, 0.53];
-const GLOW_FACTOR = 4.5;
+const HIGHLIGHT_PIXEL_SIZE = 14;
+const GLOW_FACTOR = 7;
 const GLOW_TEX_SIZE = 128;
 const PULSE_AMPLITUDE = 0.55;
 const PULSE_PERIOD_MS = 600; // ~3.8s pulse
@@ -64,10 +66,10 @@ export function lerpWorldPositions(
  */
 export function orbitGradientColors(vertexCount: number, phase: number): Float32Array {
   const colors = new Float32Array(vertexCount * 3);
-  const SIGMA = 0.09; // head width as a fraction of the ring
+  const SIGMA = 0.04; // head width as a fraction of the ring (~12% of the ring is hot)
   const HEAD: [number, number, number] = [255, 255, 255];      // white-hot head
   const TAIL: [number, number, number] = [46, 232, 138];       // green base (#2ee88a)
-  const TAIL_BRIGHTNESS = 0.35;                                 // tail clearly dimmer
+  const TAIL_BRIGHTNESS = 0.2;                                 // tail clearly dimmer
   for (let i = 0; i < vertexCount; i++) {
     let d = (i / vertexCount - phase) % 1;
     if (d < 0) d += 1;
@@ -129,11 +131,11 @@ function buildGeometry(capacity: number): THREE.BufferGeometry {
   return geometry;
 }
 
-function buildPoints(capacity: number, size: number): THREE.Points {
+function buildPoints(capacity: number, size: number, sizeAttenuation = true): THREE.Points {
   return new THREE.Points(buildGeometry(capacity), new THREE.PointsMaterial({
     size,
     vertexColors: true,
-    sizeAttenuation: true,
+    sizeAttenuation,
     transparent: true,
   }));
 }
@@ -147,7 +149,6 @@ export default function GlobeView({ positions, satNames, selectedOrbit, selected
   const glowSpriteRef = useRef<THREE.Sprite | null>(null);
   const orbitPointCountRef = useRef(0);
   const orbitPhaseRef = useRef(0);
-  const highlightBaseRef = useRef(BASE_SIZE * HIGHLIGHT_FACTOR);
   const onSelectRef = useRef(onSelect);
   onSelectRef.current = onSelect;
   const positionsRef = useRef(positions);
@@ -196,9 +197,11 @@ export default function GlobeView({ positions, satNames, selectedOrbit, selected
       .labelAltitude((d) => altR((d as SatDot).altKm) + 0.03)
       .labelResolution(2);
 
-    // All satellites render as one THREE.Points layer (single draw call) plus a 1-point highlight layer.
+    // All satellites render as one THREE.Points layer (single draw call) plus a 1-point highlight
+    // layer. The highlight is a pixel-constant dot (sizeAttenuation: false) so the selection keeps
+    // its 14px screen size at every zoom instead of shrinking with the globe.
     const basePoints = buildPoints(positions.length, BASE_SIZE);
-    const highlightPoints = buildPoints(1, BASE_SIZE * HIGHLIGHT_FACTOR);
+    const highlightPoints = buildPoints(1, HIGHLIGHT_PIXEL_SIZE, false);
     highlightPoints.visible = false;
     const hc = highlightPoints.geometry.attributes.color as THREE.BufferAttribute;
     hc.setXYZ(0, HIGHLIGHT_RGB[0], HIGHLIGHT_RGB[1], HIGHLIGHT_RGB[2]);
@@ -250,7 +253,8 @@ export default function GlobeView({ positions, satNames, selectedOrbit, selected
     globe.scene().add(basePoints, highlightPoints, orbitLine, glowSprite);
 
     // Recompute dot sizes when the OrbitControls camera moves: base size grows gently as the
-    // camera zooms in so dots stay readable, clamped to a sane floor/ceiling.
+    // camera zooms in so dots stay readable, clamped to a sane floor/ceiling. The highlight is
+    // pixel-constant so only the world-unit glow halo tracks the dot size here.
     const controls = globe.controls();
     const refDist = globe.camera().position.distanceTo(controls.target);
     const applySize = () => {
@@ -258,9 +262,6 @@ export default function GlobeView({ positions, satNames, selectedOrbit, selected
       const size = dotSizeFor(dist, refDist, BASE_SIZE);
       dotSizeRef.current = size;
       (basePoints.material as THREE.PointsMaterial).size = size;
-      const hiSize = size * HIGHLIGHT_FACTOR;
-      highlightBaseRef.current = hiSize;
-      (highlightPoints.material as THREE.PointsMaterial).size = hiSize;
       glowSprite.scale.set(size * GLOW_FACTOR, size * GLOW_FACTOR, 1);
     };
     applySize();
@@ -368,11 +369,11 @@ export default function GlobeView({ positions, satNames, selectedOrbit, selected
           const hp = highlight.geometry.attributes.position as THREE.BufferAttribute;
           hp.setXYZ(0, lerpOutRef.current[hi * 3], lerpOutRef.current[hi * 3 + 1], lerpOutRef.current[hi * 3 + 2]);
           hp.needsUpdate = true;
-          // pulsing dot size + glow halo track the (lerped) selected satellite; the halo breathes
-          // with the same phase so the selection reads as a strong pulsing blob
+          // pulsing pixel-constant dot size + glow halo track the (lerped) selected satellite; the
+          // halo breathes with the same phase so the selection reads as a strong pulsing blob
           const pulse = Math.sin(now / PULSE_PERIOD_MS);
           (highlight.material as THREE.PointsMaterial).size =
-            highlightBaseRef.current * (1 + PULSE_AMPLITUDE * pulse);
+            HIGHLIGHT_PIXEL_SIZE * (1 + PULSE_AMPLITUDE * pulse);
           const glow = glowSpriteRef.current;
           if (glow) {
             glow.position.set(lerpOutRef.current[hi * 3], lerpOutRef.current[hi * 3 + 1], lerpOutRef.current[hi * 3 + 2]);

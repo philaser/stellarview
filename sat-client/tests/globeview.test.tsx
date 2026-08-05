@@ -404,8 +404,10 @@ describe("orbitGradientColors", () => {
     expect(colors[0]).toBeCloseTo(1, 2);
     expect(colors[1]).toBeCloseTo(1, 2);
     expect(colors[2]).toBeCloseTo(1, 2);
-    // tail opposite the head sits at 35% of #2ee88a, clearly dimmer than the head
-    const tailAt = (c: number) => (c * 0.35) / 255;
+    // a vertex within 2 of the phase still reads near-white-hot (narrow head)
+    expect(colors[1 * 3]).toBeGreaterThan(0.9);
+    // tail opposite the head sits at 20% of #2ee88a, clearly dimmer than the head
+    const tailAt = (c: number) => (c * 0.2) / 255;
     expect(colors[60 * 3]).toBeCloseTo(tailAt(46), 3);
     expect(colors[60 * 3 + 1]).toBeCloseTo(tailAt(232), 3);
     expect(colors[60 * 3 + 2]).toBeCloseTo(tailAt(138), 3);
@@ -591,6 +593,10 @@ describe("GlobeView", () => {
     const highlight = createdPoints.find((p) => p.geometry.attributes.position.count === 1)!;
     expect(highlight.visible).toBe(true);
     expect(highlight.material.vertexColors).toBe(true);
+    // the selected dot is a constant screen-size pixel dot (no world-size attenuation), so it
+    // stays unmissable at every zoom
+    expect(highlight.material.sizeAttenuation).toBe(false);
+    expect(highlight.material.size).toBe(14);
     const glow = threeLineMocks.createdSprites[0];
     expect(glow).toBeDefined();
     expect(glow.visible).toBe(true);
@@ -600,8 +606,8 @@ describe("GlobeView", () => {
     const cb1 = rafCallbacks.shift()!;
     cb1(1000);
     const size1 = highlight.material.size;
-    expect(size1).toBeGreaterThan(0.1 * (1 - 0.55));
-    expect(size1).toBeLessThan(0.1 * (1 + 0.55));
+    expect(size1).toBeGreaterThan(14 * (1 - 0.55));
+    expect(size1).toBeLessThan(14 * (1 + 0.55));
     // the glow halo breathes with the same phase (base = dot size * GLOW_FACTOR)
     const glowScale1 = glow.scale.x;
     expect(glowScale1).toBeGreaterThan(0);
@@ -616,20 +622,22 @@ describe("GlobeView", () => {
     expect(glow.position.y).toBeCloseTo(10, 5);
   });
 
-  it("resizes dots when the camera zooms, keeping the highlight 5x", () => {
+  it("resizes dots when the camera zooms, keeping the highlight a constant pixel size", () => {
     render(
       <GlobeView positions={positions} satNames={satNames} selectedOrbit={null} selectedCatnr={null} onSelect={() => {}} />
     );
     const base = createdPoints.find((p) => p.geometry.attributes.position.count === 2)!;
     const highlight = createdPoints.find((p) => p.geometry.attributes.position.count === 1)!;
     expect(base.material.size).toBe(0.02);
-    expect(highlight.material.size).toBeCloseTo(base.material.size * 5, 5);
+    expect(highlight.material.size).toBe(14); // pixel size, independent of world distance
     // zoom in to half the reference distance and fire the OrbitControls 'change' event
     cameraState.z = 5;
     controlsListeners.change?.();
     expect(base.material.size).toBe(dotSizeFor(5, 10, 0.02));
     expect(base.material.size).toBeGreaterThan(0.02);
-    expect(highlight.material.size).toBeCloseTo(base.material.size * 5, 5);
+    // the highlight stays a constant 14px on screen regardless of zoom
+    expect(highlight.material.size).toBe(14);
+    expect(highlight.material.sizeAttenuation).toBe(false);
   });
 
   it("glides base dots, the highlight and the label between snapshots via the rAF loop", () => {
