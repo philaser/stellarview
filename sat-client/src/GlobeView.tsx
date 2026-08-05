@@ -95,6 +95,9 @@ export default function GlobeView({ positions, satNames, selectedOrbit, selected
   satNamesRef.current = satNames;
   const worldCoordsRef = useRef<Float32Array>(new Float32Array(0));
   const dotSizeRef = useRef(BASE_SIZE);
+  // Single mutable label entry: position ticks mutate it in place so three-globe re-reads the
+  // accessors next frame instead of re-creating the label layer (which would flicker every tick).
+  const labelEntryRef = useRef<{ lat: number; lng: number; catnr: number; altKm: number } | null>(null);
   const [hoveredCatnr, setHoveredCatnr] = useState<number | null>(null);
   const [tooltip, setTooltip] = useState<{ x: number; y: number; text: string } | null>(null);
 
@@ -114,7 +117,7 @@ export default function GlobeView({ positions, satNames, selectedOrbit, selected
       .labelsData([])
       .labelLat((d) => (d as SatDot).lat)
       .labelLng((d) => (d as SatDot).lon)
-      .labelText((d) => String((d as SatDot).catnr))
+      .labelText((d) => satNamesRef.current[(d as { catnr: number }).catnr] ?? String((d as { catnr: number }).catnr))
       .labelColor(() => "#ffffff")
       .labelSize(1.2)
       .labelAltitude((d) => altR((d as SatDot).altKm) + 0.03)
@@ -302,8 +305,32 @@ export default function GlobeView({ positions, satNames, selectedOrbit, selected
       highlight.visible = false;
     }
 
-    globe.labelsData(positions.filter((p) => p.catnr === selectedCatnr));
+    // Mutate the single label entry in place (no labelsData call) so the label glides with the sat.
+    const labelEntry = labelEntryRef.current;
+    if (labelEntry) {
+      const sel = positions.find((p) => p.catnr === labelEntry.catnr);
+      if (sel) {
+        labelEntry.lat = sel.lat;
+        labelEntry.lng = sel.lon;
+        labelEntry.altKm = sel.altKm;
+      }
+    }
   }, [positions, selectedCatnr, hoveredCatnr]);
+
+  // Re-create the label layer ONLY when the selection changes; position ticks mutate the same entry above.
+  useEffect(() => {
+    const globe = globeRef.current;
+    if (!globe) return;
+    if (selectedCatnr == null) {
+      labelEntryRef.current = null;
+      globe.labelsData([]);
+      return;
+    }
+    const sat = positionsRef.current.find((p) => p.catnr === selectedCatnr);
+    const entry = sat ? { lat: sat.lat, lng: sat.lon, catnr: sat.catnr, altKm: sat.altKm } : null;
+    labelEntryRef.current = entry;
+    globe.labelsData(entry ? [entry] : []);
+  }, [selectedCatnr]);
 
   useEffect(() => {
     const globe = globeRef.current;

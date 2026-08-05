@@ -2,12 +2,14 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, fireEvent } from "@testing-library/react";
 import GlobeView, { findNearest, dotSizeFor } from "../src/GlobeView";
 
-const { createdPoints, sceneAdd, controlsListeners, cameraState } = vi.hoisted(() => ({
+const { createdPoints, sceneAdd, controlsListeners, cameraState, labelsDataMock, labelTextAccessor } = vi.hoisted(() => ({
   createdPoints: [] as any[],
   sceneAdd: vi.fn(),
   controlsListeners: {} as Record<string, (() => void) | null>,
   // camera sits 10 units from the globe origin at the initial pointOfView (refDist = 10)
   cameraState: { x: 0, y: 0, z: 10 },
+  labelsDataMock: vi.fn(),
+  labelTextAccessor: { current: null as ((d: unknown) => string) | null },
 }));
 
 const config: Record<string, unknown> = {};
@@ -90,6 +92,7 @@ vi.mock("globe.gl", () => ({
       return this;
     }
     labelsData(d: unknown) {
+      labelsDataMock(d);
       config.labelsData = d;
       return this;
     }
@@ -99,7 +102,8 @@ vi.mock("globe.gl", () => ({
     labelLng() {
       return this;
     }
-    labelText() {
+    labelText(fn: (d: unknown) => string) {
+      labelTextAccessor.current = fn;
       return this;
     }
     labelColor() {
@@ -290,6 +294,8 @@ describe("GlobeView", () => {
   beforeEach(() => {
     createdPoints.length = 0;
     sceneAdd.mockClear();
+    labelsDataMock.mockClear();
+    labelTextAccessor.current = null;
     for (const k of Object.keys(config)) delete config[k];
     for (const k of Object.keys(controlsListeners)) delete controlsListeners[k];
     cameraState.x = 0;
@@ -365,7 +371,7 @@ describe("GlobeView", () => {
     expect(pos[2]).toBeCloseTo(0.35, 5); // sat 2's altitude (capped GEO)
   });
 
-  it("renders the selected orbit as a path and the selected satellite as a label", () => {
+  it("renders the selected orbit as a path and one stable label named from satNames", () => {
     render(
       <GlobeView
         positions={positions}
@@ -377,8 +383,31 @@ describe("GlobeView", () => {
     );
     expect(config.pathsData).toBeDefined();
     expect((config.pathsData as unknown[]).length).toBeGreaterThan(0);
-    expect(config.labelsData).toBeDefined();
-    expect((config.labelsData as unknown[]).length).toBe(1);
+    // the label layer is created exactly once when the selection is set
+    const labelCalls = labelsDataMock.mock.calls.filter((c) => (c[0] as unknown[]).length > 0);
+    expect(labelCalls).toHaveLength(1);
+    const entry = (labelCalls[0][0] as unknown[])[0] as { lat: number; lng: number; catnr: number };
+    expect(entry.catnr).toBe(1);
+    // the label accessor resolves the satellite NAME (not the NORAD id)
+    expect(labelTextAccessor.current?.(entry)).toBe("Sat One");
+  });
+
+  it("mutates the label entry in place instead of re-creating it on a positions tick", () => {
+    const { rerender } = render(
+      <GlobeView positions={positions} satNames={satNames} selectedOrbit={null} selectedCatnr={1} onSelect={() => {}} />
+    );
+    const labelCalls = labelsDataMock.mock.calls.filter((c) => (c[0] as unknown[]).length > 0);
+    expect(labelCalls).toHaveLength(1);
+    const callsBefore = labelsDataMock.mock.calls.length;
+    const moved = positions.map((p, i) => (i === 0 ? { ...p, lat: p.lat + 1, lon: p.lon + 1 } : p));
+    rerender(
+      <GlobeView positions={moved} satNames={satNames} selectedOrbit={null} selectedCatnr={1} onSelect={() => {}} />
+    );
+    // a positions-only change must NOT re-create the label layer
+    expect(labelsDataMock.mock.calls.length).toBe(callsBefore);
+    // the same entry object was mutated to the new position
+    const entry = (labelCalls[0][0] as unknown[])[0] as { lat: number; lng: number };
+    expect(entry.lat).toBe(11);
   });
 
   it("has no path when no satellite is selected", () => {
