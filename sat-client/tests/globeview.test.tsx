@@ -1,10 +1,13 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, fireEvent } from "@testing-library/react";
-import GlobeView, { findNearest } from "../src/GlobeView";
+import GlobeView, { findNearest, dotSizeFor } from "../src/GlobeView";
 
-const { createdPoints, sceneAdd } = vi.hoisted(() => ({
+const { createdPoints, sceneAdd, controlsListeners, cameraState } = vi.hoisted(() => ({
   createdPoints: [] as any[],
   sceneAdd: vi.fn(),
+  controlsListeners: {} as Record<string, (() => void) | null>,
+  // camera sits 10 units from the globe origin at the initial pointOfView (refDist = 10)
+  cameraState: { x: 0, y: 0, z: 10 },
 }));
 
 const config: Record<string, unknown> = {};
@@ -15,7 +18,25 @@ vi.mock("globe.gl", () => ({
       return { add: sceneAdd, remove: () => {} };
     }
     camera() {
-      return { isCamera: true };
+      return {
+        isCamera: true,
+        position: {
+          x: cameraState.x,
+          y: cameraState.y,
+          z: cameraState.z,
+          distanceTo: (v: { x: number; y: number; z: number }) =>
+            Math.hypot(cameraState.x - v.x, cameraState.y - v.y, cameraState.z - v.z),
+        },
+      };
+    }
+    controls() {
+      return {
+        target: { x: 0, y: 0, z: 0 },
+        addEventListener: (evt: string, fn: () => void) => {
+          controlsListeners[evt] = fn;
+        },
+        removeEventListener: () => {},
+      };
     }
     getCoords(lat: number, lng: number, altitude = 0) {
       return { x: lng, y: lat, z: altitude };
@@ -244,11 +265,36 @@ describe("findNearest", () => {
   });
 });
 
+describe("dotSizeFor", () => {
+  it("returns the base size at the reference camera distance", () => {
+    expect(dotSizeFor(10, 10, 0.02)).toBe(0.02);
+  });
+
+  it("grows gently as the camera zooms in", () => {
+    const atHalfDist = dotSizeFor(5, 10, 0.02);
+    expect(atHalfDist).toBeGreaterThan(0.02); // closer camera -> bigger dots
+    expect(atHalfDist).toBeLessThan(0.05); // gentle curve, not runaway
+  });
+
+  it("clamps to the floor and ceiling", () => {
+    expect(dotSizeFor(1e9, 10, 0.02)).toBe(0.01); // very far -> floor
+    expect(dotSizeFor(0.0001, 10, 0.02)).toBe(0.09); // very close -> ceiling
+  });
+
+  it("clamps a huge base size down to the ceiling", () => {
+    expect(dotSizeFor(10, 10, 0.5)).toBe(0.09);
+  });
+});
+
 describe("GlobeView", () => {
   beforeEach(() => {
     createdPoints.length = 0;
     sceneAdd.mockClear();
     for (const k of Object.keys(config)) delete config[k];
+    for (const k of Object.keys(controlsListeners)) delete controlsListeners[k];
+    cameraState.x = 0;
+    cameraState.y = 0;
+    cameraState.z = 10;
     // jsdom has no PointerEvent; the component listens for pointermove, so give it a MouseEvent-backed one.
     vi.stubGlobal(
       "PointerEvent",
@@ -267,7 +313,7 @@ describe("GlobeView", () => {
     );
     const base = createdPoints.find((p) => p.geometry.attributes.position.count === 2);
     expect(base).toBeDefined();
-    expect(base.material.size).toBe(0.012);
+    expect(base.material.size).toBe(0.02); // base dot size at the reference camera distance
     const pos = base.geometry.attributes.position.array as number[];
     expect(pos[2]).toBeCloseTo(420 / 6371, 3);
     expect(pos[5]).toBeCloseTo(0.35, 5);
@@ -340,5 +386,21 @@ describe("GlobeView", () => {
       <GlobeView positions={positions} satNames={satNames} selectedOrbit={null} selectedCatnr={null} onSelect={() => {}} />
     );
     expect(config.pathsData).toBeUndefined();
+  });
+
+  it("resizes dots when the camera zooms, keeping the highlight 4x", () => {
+    render(
+      <GlobeView positions={positions} satNames={satNames} selectedOrbit={null} selectedCatnr={null} onSelect={() => {}} />
+    );
+    const base = createdPoints.find((p) => p.geometry.attributes.position.count === 2)!;
+    const highlight = createdPoints.find((p) => p.geometry.attributes.position.count === 1)!;
+    expect(base.material.size).toBe(0.02);
+    expect(highlight.material.size).toBeCloseTo(base.material.size * 4, 5);
+    // zoom in to half the reference distance and fire the OrbitControls 'change' event
+    cameraState.z = 5;
+    controlsListeners.change?.();
+    expect(base.material.size).toBe(dotSizeFor(5, 10, 0.02));
+    expect(base.material.size).toBeGreaterThan(0.02);
+    expect(highlight.material.size).toBeCloseTo(base.material.size * 4, 5);
   });
 });

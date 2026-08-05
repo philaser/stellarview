@@ -4,9 +4,9 @@ export type Regime = "leo" | "meo" | "geo";
 export type Constellation = "starlink" | "oneweb" | "gps" | "iridium" | "other";
 
 export const REGIME_COLORS: Record<Regime, string> = {
-  leo: "#38bdf8",
-  meo: "#a78bfa",
-  geo: "#fbbf24",
+  leo: "#00e5ff", // bright cyan
+  meo: "#c77dff", // bright violet
+  geo: "#ffd166", // bright amber
 };
 
 const LEO_MAX_S = 128 * 60;

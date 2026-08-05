@@ -10,9 +10,19 @@ const COUNTRIES_URL =
 const ALT_CAP = 0.35;
 const altR = (altKm: number) => Math.min(altKm / 6371, ALT_CAP);
 
-// Point sizes in globe-radius units (~1-3px dots at the default camera; highlight is 4x).
-const BASE_SIZE = 0.012;
-const HIGHLIGHT_SIZE = 0.05;
+// Point sizes in globe-radius units; dots gently grow as the camera zooms in (~2-5px dots at the
+// default camera, up to a visible 9% of the globe radius). Highlight stays 4x the base size.
+const BASE_SIZE = 0.02;
+const HIGHLIGHT_FACTOR = 4;
+const MIN_DOT_SIZE = 0.01;
+const MAX_DOT_SIZE = 0.09;
+const SIZE_CURVE = 0.35;
+
+/** Dot size (globe-radius units) for a camera at `distance` from a reference distance `refDist`. */
+export function dotSizeFor(distance: number, refDist: number, base: number): number {
+  const scaled = base * Math.pow(refDist / distance, SIZE_CURVE);
+  return Math.min(MAX_DOT_SIZE, Math.max(MIN_DOT_SIZE, scaled));
+}
 
 // Screen-space picking radii (px) around the cursor; the nearest projected dot wins.
 const HOVER_THRESHOLD = 8;
@@ -84,6 +94,7 @@ export default function GlobeView({ positions, satNames, selectedOrbit, selected
   const satNamesRef = useRef(satNames);
   satNamesRef.current = satNames;
   const worldCoordsRef = useRef<Float32Array>(new Float32Array(0));
+  const dotSizeRef = useRef(BASE_SIZE);
   const [hoveredCatnr, setHoveredCatnr] = useState<number | null>(null);
   const [tooltip, setTooltip] = useState<{ x: number; y: number; text: string } | null>(null);
 
@@ -115,19 +126,33 @@ export default function GlobeView({ positions, satNames, selectedOrbit, selected
       .pathPointLat((p) => (p as [number, number])[1])
       .pathPointLng((p) => (p as [number, number])[0])
       .pathPointAlt(() => 0.07)
-      .pathColor(() => "#a855f7")
-      .pathStroke(0.04)
-      .pathDashLength(0.15)
-      .pathDashGap(0.06)
+      .pathColor(() => "#c77dff")
+      .pathStroke(0.1)
+      .pathDashLength(0.25)
+      .pathDashGap(0.08)
       .pathDashInitialGap(0.05);
 
     // All satellites render as one THREE.Points layer (single draw call) plus a 1-point highlight layer.
     const basePoints = buildPoints(positions.length, BASE_SIZE);
-    const highlightPoints = buildPoints(1, HIGHLIGHT_SIZE);
+    const highlightPoints = buildPoints(1, BASE_SIZE * HIGHLIGHT_FACTOR);
     highlightPoints.visible = false;
     baseRef.current = basePoints;
     highlightRef.current = highlightPoints;
     globe.scene().add(basePoints, highlightPoints);
+
+    // Recompute dot sizes when the OrbitControls camera moves: base size grows gently as the
+    // camera zooms in so dots stay readable, clamped to a sane floor/ceiling.
+    const controls = globe.controls();
+    const refDist = globe.camera().position.distanceTo(controls.target);
+    const applySize = () => {
+      const dist = globe.camera().position.distanceTo(controls.target);
+      const size = dotSizeFor(dist, refDist, BASE_SIZE);
+      dotSizeRef.current = size;
+      (basePoints.material as THREE.PointsMaterial).size = size;
+      (highlightPoints.material as THREE.PointsMaterial).size = size * HIGHLIGHT_FACTOR;
+    };
+    applySize();
+    controls.addEventListener("change", applySize);
 
     // Picking: project every satellite's world coords to the container and take the nearest within a radius.
     const tmpVec = new THREE.Vector3();
@@ -212,6 +237,7 @@ export default function GlobeView({ positions, satNames, selectedOrbit, selected
     return () => {
       container.removeEventListener("pointermove", onPointerMove);
       container.removeEventListener("click", onClick);
+      controls.removeEventListener("change", applySize);
       globe.scene().remove(basePoints, highlightPoints);
       basePoints.geometry.dispose();
       (basePoints.material as THREE.Material).dispose();
@@ -238,7 +264,7 @@ export default function GlobeView({ positions, satNames, selectedOrbit, selected
       (base.material as THREE.Material).dispose();
       base.geometry = buildGeometry(positions.length);
       base.material = new THREE.PointsMaterial({
-        size: BASE_SIZE,
+        size: dotSizeRef.current,
         vertexColors: true,
         sizeAttenuation: true,
         transparent: true,

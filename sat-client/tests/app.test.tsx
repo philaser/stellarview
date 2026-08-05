@@ -71,7 +71,12 @@ vi.mock("globe.gl", () => ({
   default: class {
     constructor() {}
     scene() { return { add() {}, remove() {} }; }
-    camera() { return {}; }
+    camera() {
+      return { position: { distanceTo: () => 10 } };
+    }
+    controls() {
+      return { target: {}, addEventListener() {}, removeEventListener() {} };
+    }
     getCoords(_lat: number, _lng: number, altitude = 0) {
       return { x: 0, y: 0, z: altitude };
     }
