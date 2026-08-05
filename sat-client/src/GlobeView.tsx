@@ -1,4 +1,5 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
+import * as THREE from "three";
 import Globe from "globe.gl";
 import type { SatDot } from "./MapView";
 
@@ -9,6 +10,10 @@ const COUNTRIES_URL =
 const ALT_CAP = 0.35;
 const altR = (altKm: number) => Math.min(altKm / 6371, ALT_CAP);
 
+// Point sizes in globe-radius units (~1-3px dots at the default camera; highlight is 4x).
+const BASE_SIZE = 0.012;
+const HIGHLIGHT_SIZE = 0.05;
+
 export interface GlobeViewProps {
   positions: SatDot[];
   selectedOrbit: [number, number][] | null;
@@ -16,17 +21,40 @@ export interface GlobeViewProps {
   onSelect: (catnr: number) => void;
 }
 
+function buildGeometry(capacity: number): THREE.BufferGeometry {
+  const geometry = new THREE.BufferGeometry();
+  const position = new THREE.BufferAttribute(new Float32Array(capacity * 3), 3);
+  const color = new THREE.BufferAttribute(new Float32Array(capacity * 3), 3);
+  position.setUsage(THREE.DynamicDrawUsage);
+  color.setUsage(THREE.DynamicDrawUsage);
+  geometry.setAttribute("position", position);
+  geometry.setAttribute("color", color);
+  return geometry;
+}
+
+function buildPoints(capacity: number, size: number): THREE.Points {
+  return new THREE.Points(buildGeometry(capacity), new THREE.PointsMaterial({
+    size,
+    vertexColors: true,
+    sizeAttenuation: true,
+    transparent: true,
+  }));
+}
+
 export default function GlobeView({ positions, selectedOrbit, selectedCatnr, onSelect }: GlobeViewProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const globeRef = useRef<InstanceType<typeof Globe> | null>(null);
+  const baseRef = useRef<THREE.Points | null>(null);
+  const highlightRef = useRef<THREE.Points | null>(null);
   const onSelectRef = useRef(onSelect);
   onSelectRef.current = onSelect;
-  const selectedRef = useRef(selectedCatnr);
-  selectedRef.current = selectedCatnr;
-  const hoveredRef = useRef<number | null>(null);
+  const positionsRef = useRef(positions);
+  positionsRef.current = positions;
+  const [hoveredCatnr, setHoveredCatnr] = useState<number | null>(null);
 
   useEffect(() => {
-    const globe = new Globe(containerRef.current!, { rendererConfig: { antialias: true } });
+    const container = containerRef.current!;
+    const globe = new Globe(container, { rendererConfig: { antialias: true } });
     // dev/verification handle for the visual-check harness
     (window as { __ftGlobe?: unknown }).__ftGlobe = globe;
     globe
@@ -35,29 +63,6 @@ export default function GlobeView({ positions, selectedOrbit, selectedCatnr, onS
       .atmosphereColor("#3a4a6b")
       .showGraticules(false)
       .pointOfView({ lat: 20, lng: 0, altitude: 3.2 });
-
-    globe
-      .particlesData([])
-      .particleLat((d) => (d as SatDot).lat)
-      .particleLng((d) => (d as SatDot).lon)
-      .particleAltitude((d) => (d as SatDot & { altR: number }).altR)
-      // particles layer groups each datum into a particle list; one sat per group keeps per-sat color/size
-      .particlesColor((d) => (d as SatDot[])[0]?.color ?? "#e5e7eb")
-      .particlesSize((d) => {
-        const sat = (d as SatDot[])[0];
-        return sat.catnr === selectedRef.current
-          ? 0.9
-          : hoveredRef.current === sat.catnr
-            ? 0.7
-            : 0.25;
-      })
-      .onParticleClick((p) => onSelectRef.current((p as SatDot).catnr))
-      .onParticleHover((p) => {
-        hoveredRef.current = p ? (p as SatDot).catnr : null;
-        if (containerRef.current) {
-          containerRef.current.style.cursor = p ? "pointer" : "";
-        }
-      });
 
     globe
       .labelsData([])
@@ -81,7 +86,37 @@ export default function GlobeView({ positions, selectedOrbit, selectedCatnr, onS
       .pathDashGap(0.06)
       .pathDashInitialGap(0.05);
 
-    globeRef.current = globe;
+    // All satellites render as one THREE.Points layer (single draw call) plus a 1-point highlight layer.
+    const basePoints = buildPoints(positions.length, BASE_SIZE);
+    const highlightPoints = buildPoints(1, HIGHLIGHT_SIZE);
+    highlightPoints.visible = false;
+    baseRef.current = basePoints;
+    highlightRef.current = highlightPoints;
+    globe.scene().add(basePoints, highlightPoints);
+
+    // Picking: raycast against the base layer; the intersection index maps to the positions array.
+    const raycaster = new THREE.Raycaster();
+    raycaster.params.Points.threshold = 2; // ~6px hit area so small dots are clickable
+    const pick = (evt: PointerEvent): number | null => {
+      const rect = container.getBoundingClientRect();
+      const ndcX = ((evt.clientX - rect.left) / rect.width) * 2 - 1;
+      const ndcY = -((evt.clientY - rect.top) / rect.height) * 2 + 1;
+      raycaster.setFromCamera(new THREE.Vector2(ndcX, ndcY), globe.camera());
+      const hits = raycaster.intersectObject(basePoints, false);
+      return hits.length > 0 ? (hits[0].index ?? null) : null;
+    };
+    const onPointerMove = (evt: PointerEvent) => {
+      const idx = pick(evt);
+      const catnr = idx != null ? positionsRef.current[idx]?.catnr ?? null : null;
+      setHoveredCatnr(catnr);
+      container.style.cursor = catnr != null ? "pointer" : "";
+    };
+    const onClick = (evt: PointerEvent) => {
+      const idx = pick(evt);
+      if (idx != null) onSelectRef.current(positionsRef.current[idx].catnr);
+    };
+    container.addEventListener("pointermove", onPointerMove);
+    container.addEventListener("click", onClick);
 
     fetch(COUNTRIES_URL)
       .then((r) => r.json())
@@ -97,20 +132,71 @@ export default function GlobeView({ positions, selectedOrbit, selectedCatnr, onS
         // countries layer is decorative; the globe still renders
       });
 
+    globeRef.current = globe;
+
     return () => {
+      container.removeEventListener("pointermove", onPointerMove);
+      container.removeEventListener("click", onClick);
+      globe.scene().remove(basePoints, highlightPoints);
+      basePoints.geometry.dispose();
+      (basePoints.material as THREE.Material).dispose();
+      highlightPoints.geometry.dispose();
+      (highlightPoints.material as THREE.Material).dispose();
       globe._destructor?.();
       globeRef.current = null;
+      baseRef.current = null;
+      highlightRef.current = null;
     };
+    // positions.length only seeds the initial buffer capacity; the update effect grows it as needed
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {
     const globe = globeRef.current;
-    if (!globe) return;
-    const pts = positions.map((p) => ({ ...p, altR: altR(p.altKm) }));
-    globe.particlesData(pts.map((p) => [p]));
+    const base = baseRef.current;
+    const highlight = highlightRef.current;
+    if (!globe || !base || !highlight) return;
+
+    // Grow the buffer if the catalog shrank below its steady-state size on first mount.
+    if (positions.length > base.geometry.attributes.position.count) {
+      base.geometry.dispose();
+      (base.material as THREE.Material).dispose();
+      base.geometry = buildGeometry(positions.length);
+      base.material = new THREE.PointsMaterial({
+        size: BASE_SIZE,
+        vertexColors: true,
+        sizeAttenuation: true,
+        transparent: true,
+      });
+    }
+
+    const posAttr = base.geometry.attributes.position as THREE.BufferAttribute;
+    const colorAttr = base.geometry.attributes.color as THREE.BufferAttribute;
+    const tmpColor = new THREE.Color();
+    positions.forEach((p, i) => {
+      const c = globe.getCoords(p.lat, p.lon, altR(p.altKm));
+      posAttr.setXYZ(i, c.x, c.y, c.z);
+      tmpColor.set(p.color ?? "#e5e7eb");
+      colorAttr.setXYZ(i, tmpColor.r, tmpColor.g, tmpColor.b);
+    });
+    posAttr.needsUpdate = true;
+    colorAttr.needsUpdate = true;
+
+    // Highlight layer shows hovered or selected (hover wins), whichever applies.
+    const shown = hoveredCatnr ?? selectedCatnr;
+    const sat = shown != null ? positions.find((p) => p.catnr === shown) : undefined;
+    if (sat) {
+      const c = globe.getCoords(sat.lat, sat.lon, altR(sat.altKm));
+      const hp = highlight.geometry.attributes.position as THREE.BufferAttribute;
+      hp.setXYZ(0, c.x, c.y, c.z);
+      hp.needsUpdate = true;
+      highlight.visible = true;
+    } else {
+      highlight.visible = false;
+    }
+
     globe.labelsData(positions.filter((p) => p.catnr === selectedCatnr));
-    globe.particlesData(pts.map((p) => [p])); // re-apply after label change to refresh size expressions
-  }, [positions, selectedCatnr]);
+  }, [positions, selectedCatnr, hoveredCatnr]);
 
   useEffect(() => {
     const globe = globeRef.current;
@@ -122,16 +208,17 @@ export default function GlobeView({ positions, selectedOrbit, selectedCatnr, onS
     }
   }, [selectedOrbit]);
 
+  // Dash animation only runs while an orbit path is actually shown.
   useEffect(() => {
     const globe = globeRef.current;
-    if (!globe) return;
+    if (!globe || !selectedOrbit || selectedOrbit.length < 2) return;
     let gap = 0;
     const interval = setInterval(() => {
       gap = (gap + 0.02) % 0.3;
       globe.pathDashInitialGap(gap);
     }, 80);
     return () => clearInterval(interval);
-  }, []);
+  }, [selectedOrbit]);
 
   return <div ref={containerRef} className="map" />;
 }

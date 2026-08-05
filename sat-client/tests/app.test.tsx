@@ -70,14 +70,11 @@ vi.mock("maplibre-gl", () => ({
 vi.mock("globe.gl", () => ({
   default: class {
     constructor() {}
-    onParticleClick() { return this; }
-    onParticleHover() { return this; }
-    particlesData() { return this; }
-    particleLat() { return this; }
-    particleLng() { return this; }
-    particleAltitude() { return this; }
-    particlesColor() { return this; }
-    particlesSize() { return this; }
+    scene() { return { add() {}, remove() {} }; }
+    camera() { return {}; }
+    getCoords(_lat: number, _lng: number, altitude = 0) {
+      return { x: 0, y: 0, z: altitude };
+    }
     polygonsData() { return this; }
     polygonCapColor() { return this; }
     polygonSideColor() { return this; }
@@ -109,6 +106,83 @@ vi.mock("globe.gl", () => ({
     _destructor() {}
   },
 }));
+
+// GlobeView adds custom THREE.Points layers to the globe scene; jsdom has no WebGL so mock the classes used.
+vi.mock("three", () => {
+  class BufferAttribute {
+    array: Float32Array;
+    itemSize: number;
+    needsUpdate = false;
+    constructor(array: Float32Array, itemSize: number) {
+      this.array = array;
+      this.itemSize = itemSize;
+    }
+    get count() {
+      return this.array.length / this.itemSize;
+    }
+    setUsage() {
+      return this;
+    }
+    setXYZ(i: number, x: number, y: number, z: number) {
+      this.array[i * 3] = x;
+      this.array[i * 3 + 1] = y;
+      this.array[i * 3 + 2] = z;
+    }
+  }
+  class BufferGeometry {
+    attributes: Record<string, BufferAttribute> = {};
+    setAttribute(name: string, attr: BufferAttribute) {
+      this.attributes[name] = attr;
+    }
+    dispose() {}
+  }
+  class PointsMaterial {
+    constructor(props: object) {
+      Object.assign(this, props);
+    }
+    dispose() {}
+  }
+  class Points {
+    geometry: BufferGeometry;
+    material: PointsMaterial;
+    visible = true;
+    constructor(geometry: BufferGeometry, material: PointsMaterial) {
+      this.geometry = geometry;
+      this.material = material;
+    }
+  }
+  class Raycaster {
+    params = { Points: { threshold: 1 } };
+    setFromCamera() {}
+    intersectObject() {
+      return [];
+    }
+  }
+  class Color {
+    r = 1;
+    g = 1;
+    b = 1;
+    set() {}
+  }
+  class Vector2 {
+    x: number;
+    y: number;
+    constructor(x = 0, y = 0) {
+      this.x = x;
+      this.y = y;
+    }
+  }
+  return {
+    BufferAttribute,
+    BufferGeometry,
+    PointsMaterial,
+    Points,
+    Raycaster,
+    Color,
+    Vector2,
+    DynamicDrawUsage: Symbol("DynamicDrawUsage"),
+  };
+});
 beforeEach(() => {
   capturedClick = null;
   loadHandler = null;
