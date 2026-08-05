@@ -1,6 +1,9 @@
 import { useEffect, useRef, useState } from "react";
 import * as THREE from "three";
 import Globe from "globe.gl";
+import { Line2 } from "three/examples/jsm/lines/Line2.js";
+import { LineGeometry } from "three/examples/jsm/lines/LineGeometry.js";
+import { LineMaterial } from "three/examples/jsm/lines/LineMaterial.js";
 import type { SatDot } from "./MapView";
 
 const COUNTRIES_URL =
@@ -18,6 +21,23 @@ const MIN_DOT_SIZE = 0.01;
 const MAX_DOT_SIZE = 0.09;
 const SIZE_CURVE = 0.35;
 
+// Trajectory: a fat Line2 circling the globe just above the surface. A per-vertex color gradient
+// (bright peak fading both ways to the base green) loops around the ring every frame to show
+// direction of travel; Line2 renders with depth testing so the far side is occluded by the globe.
+const ORBIT_ALTITUDE = 0.07;
+const ORBIT_LINE_WIDTH = 5;
+// #2ee88a (base) -> #d9ffe8 (bright peak)
+const ORBIT_BASE_RGB: [number, number, number] = [0.18, 0.91, 0.54];
+const ORBIT_PEAK_RGB: [number, number, number] = [0.85, 1, 0.91];
+const ORBIT_PHASE_STEP = 0.02;
+
+// Selected-satellite highlight: pulsing green dot (#22ff88) plus a soft radial-gradient halo sprite.
+const HIGHLIGHT_RGB: [number, number, number] = [0.13, 1, 0.53];
+const GLOW_FACTOR = 4;
+const GLOW_TEX_SIZE = 128;
+const PULSE_AMPLITUDE = 0.35;
+const PULSE_PERIOD_MS = 600; // ~3.8s calm pulse
+
 /** Dot size (globe-radius units) for a camera at `distance` from a reference distance `refDist`. */
 export function dotSizeFor(distance: number, refDist: number, base: number): number {
   const scaled = base * Math.pow(refDist / distance, SIZE_CURVE);
@@ -32,6 +52,25 @@ export function lerpWorldPositions(
   out: Float32Array
 ): Float32Array {
   for (let i = 0; i < out.length; i++) out[i] = prev[i] + (current[i] - prev[i]) * t;
+  return out;
+}
+
+/**
+ * Per-vertex RGB colors for the orbit ring: a bright peak that fades both ways to the base line
+ * color. `phase` (fraction of the ring, mod 1) drives the peak position, so advancing it each
+ * frame makes the gradient loop around the orbit and read as a direction arrow.
+ */
+export function orbitGradientColors(vertexCount: number, phase: number): Float32Array {
+  const out = new Float32Array(vertexCount * 3);
+  const peak = phase - Math.floor(phase);
+  for (let i = 0; i < vertexCount; i++) {
+    const u = i / vertexCount;
+    const d = Math.min(Math.abs(u - peak), 1 - Math.abs(u - peak));
+    const t = 1 - 2 * d;
+    out[i * 3] = ORBIT_BASE_RGB[0] + (ORBIT_PEAK_RGB[0] - ORBIT_BASE_RGB[0]) * t;
+    out[i * 3 + 1] = ORBIT_BASE_RGB[1] + (ORBIT_PEAK_RGB[1] - ORBIT_BASE_RGB[1]) * t;
+    out[i * 3 + 2] = ORBIT_BASE_RGB[2] + (ORBIT_PEAK_RGB[2] - ORBIT_BASE_RGB[2]) * t;
+  }
   return out;
 }
 
@@ -98,6 +137,11 @@ export default function GlobeView({ positions, satNames, selectedOrbit, selected
   const globeRef = useRef<InstanceType<typeof Globe> | null>(null);
   const baseRef = useRef<THREE.Points | null>(null);
   const highlightRef = useRef<THREE.Points | null>(null);
+  const orbitLineRef = useRef<Line2 | null>(null);
+  const glowSpriteRef = useRef<THREE.Sprite | null>(null);
+  const orbitPointCountRef = useRef(0);
+  const orbitPhaseRef = useRef(0);
+  const highlightBaseRef = useRef(BASE_SIZE * HIGHLIGHT_FACTOR);
   const onSelectRef = useRef(onSelect);
   onSelectRef.current = onSelect;
   const positionsRef = useRef(positions);
@@ -142,29 +186,62 @@ export default function GlobeView({ positions, satNames, selectedOrbit, selected
       .labelLng((d) => (d as SatDot).lon)
       .labelText((d) => satNamesRef.current[(d as { catnr: number }).catnr] ?? String((d as { catnr: number }).catnr))
       .labelColor(() => "#ffffff")
-      .labelSize(1.2)
+      .labelSize(1.4)
       .labelAltitude((d) => altR((d as SatDot).altKm) + 0.03)
       .labelResolution(2);
-
-    globe
-      .pathsData([])
-      .pathPoints((d) => (d as { pts: [number, number][] }).pts)
-      .pathPointLat((p) => (p as [number, number])[1])
-      .pathPointLng((p) => (p as [number, number])[0])
-      .pathPointAlt(() => 0.07)
-      .pathColor(() => "#c77dff")
-      .pathStroke(0.1)
-      .pathDashLength(0.25)
-      .pathDashGap(0.08)
-      .pathDashInitialGap(0.05);
 
     // All satellites render as one THREE.Points layer (single draw call) plus a 1-point highlight layer.
     const basePoints = buildPoints(positions.length, BASE_SIZE);
     const highlightPoints = buildPoints(1, BASE_SIZE * HIGHLIGHT_FACTOR);
     highlightPoints.visible = false;
+    const hc = highlightPoints.geometry.attributes.color as THREE.BufferAttribute;
+    hc.setXYZ(0, HIGHLIGHT_RGB[0], HIGHLIGHT_RGB[1], HIGHLIGHT_RGB[2]);
+    hc.needsUpdate = true;
     baseRef.current = basePoints;
     highlightRef.current = highlightPoints;
-    globe.scene().add(basePoints, highlightPoints);
+
+    // Trajectory: a fat gradient line looping the globe. Positions are written when an orbit is
+    // selected; the rAF loop advances the color peak so the gradient flows along the orbit.
+    const orbitLineMaterial = new LineMaterial({ vertexColors: true, transparent: true });
+    // @types/three omits `linewidth` from LineMaterialParameters though the runtime supports it
+    (orbitLineMaterial as unknown as { linewidth: number }).linewidth = ORBIT_LINE_WIDTH;
+    const orbitLine = new Line2(new LineGeometry(), orbitLineMaterial);
+    orbitLine.visible = false;
+    orbitLineRef.current = orbitLine;
+
+    // Soft green halo behind the selected dot: radial gradient texture on a sprite (fades to
+    // transparent at the edge; depthWrite off so it never punches holes in the globe).
+    const glowCanvas = document.createElement("canvas");
+    glowCanvas.width = GLOW_TEX_SIZE;
+    glowCanvas.height = GLOW_TEX_SIZE;
+    const gctx = glowCanvas.getContext("2d");
+    if (gctx) {
+      const grad = gctx.createRadialGradient(
+        GLOW_TEX_SIZE / 2,
+        GLOW_TEX_SIZE / 2,
+        0,
+        GLOW_TEX_SIZE / 2,
+        GLOW_TEX_SIZE / 2,
+        GLOW_TEX_SIZE / 2
+      );
+      grad.addColorStop(0, "rgba(34, 255, 136, 0.9)");
+      grad.addColorStop(0.4, "rgba(34, 255, 136, 0.35)");
+      grad.addColorStop(1, "rgba(34, 255, 136, 0)");
+      gctx.fillStyle = grad;
+      gctx.fillRect(0, 0, GLOW_TEX_SIZE, GLOW_TEX_SIZE);
+    }
+    const glowTexture = new THREE.CanvasTexture(glowCanvas);
+    const glowMaterial = new THREE.SpriteMaterial({
+      map: glowTexture,
+      transparent: true,
+      depthWrite: false,
+      opacity: 0.9,
+    });
+    const glowSprite = new THREE.Sprite(glowMaterial);
+    glowSprite.visible = false;
+    glowSpriteRef.current = glowSprite;
+
+    globe.scene().add(basePoints, highlightPoints, orbitLine, glowSprite);
 
     // Recompute dot sizes when the OrbitControls camera moves: base size grows gently as the
     // camera zooms in so dots stay readable, clamped to a sane floor/ceiling.
@@ -175,7 +252,10 @@ export default function GlobeView({ positions, satNames, selectedOrbit, selected
       const size = dotSizeFor(dist, refDist, BASE_SIZE);
       dotSizeRef.current = size;
       (basePoints.material as THREE.PointsMaterial).size = size;
-      (highlightPoints.material as THREE.PointsMaterial).size = size * HIGHLIGHT_FACTOR;
+      const hiSize = size * HIGHLIGHT_FACTOR;
+      highlightBaseRef.current = hiSize;
+      (highlightPoints.material as THREE.PointsMaterial).size = hiSize;
+      glowSprite.scale.set(size * GLOW_FACTOR, size * GLOW_FACTOR, 1);
     };
     applySize();
     controls.addEventListener("change", applySize);
@@ -264,11 +344,11 @@ export default function GlobeView({ positions, satNames, selectedOrbit, selected
     // poll window instead of stepping (LEO moves only a few pixels per 2s, so a linear short-arc glide
     // is visually smooth and far cheaper than per-frame SGP4 for the whole catalog).
     let rafId = 0;
-    const frame = () => {
+    const frame = (now: number) => {
       const base = baseRef.current;
       const n = worldCurRef.current.length / 3;
       if (base && n > 0) {
-        const t = Math.min(1, Math.max(0, (performance.now() - tickAtRef.current) / 2000));
+        const t = Math.min(1, Math.max(0, (now - tickAtRef.current) / 2000));
         lerpWorldPositions(worldPrevRef.current, worldCurRef.current, t, lerpOutRef.current);
         const posAttr = base.geometry.attributes.position as THREE.BufferAttribute;
         (posAttr.array as Float32Array).set(lerpOutRef.current);
@@ -282,6 +362,13 @@ export default function GlobeView({ positions, satNames, selectedOrbit, selected
           const hp = highlight.geometry.attributes.position as THREE.BufferAttribute;
           hp.setXYZ(0, lerpOutRef.current[hi * 3], lerpOutRef.current[hi * 3 + 1], lerpOutRef.current[hi * 3 + 2]);
           hp.needsUpdate = true;
+          // pulsing dot size + glow halo track the (lerped) selected satellite
+          (highlight.material as THREE.PointsMaterial).size =
+            highlightBaseRef.current * (1 + PULSE_AMPLITUDE * Math.sin(now / PULSE_PERIOD_MS));
+          const glow = glowSpriteRef.current;
+          if (glow) {
+            glow.position.set(lerpOutRef.current[hi * 3], lerpOutRef.current[hi * 3 + 1], lerpOutRef.current[hi * 3 + 2]);
+          }
         }
 
         const entry = labelEntryRef.current;
@@ -293,6 +380,12 @@ export default function GlobeView({ positions, satNames, selectedOrbit, selected
           entry.lng = lp[li * 2 + 1] + (lc[li * 2 + 1] - lp[li * 2 + 1]) * t;
         }
       }
+      // advance the orbit gradient's bright peak so it flows along the ring (direction cue)
+      const orbitLine = orbitLineRef.current;
+      if (orbitLine?.visible) {
+        orbitPhaseRef.current += ORBIT_PHASE_STEP;
+        orbitLine.geometry.setColors(orbitGradientColors(orbitPointCountRef.current, orbitPhaseRef.current));
+      }
       rafId = requestAnimationFrame(frame);
     };
     rafId = requestAnimationFrame(frame);
@@ -302,15 +395,22 @@ export default function GlobeView({ positions, satNames, selectedOrbit, selected
       container.removeEventListener("pointermove", onPointerMove);
       container.removeEventListener("click", onClick);
       controls.removeEventListener("change", applySize);
-      globe.scene().remove(basePoints, highlightPoints);
+      globe.scene().remove(basePoints, highlightPoints, orbitLine, glowSprite);
       basePoints.geometry.dispose();
       (basePoints.material as THREE.Material).dispose();
       highlightPoints.geometry.dispose();
       (highlightPoints.material as THREE.Material).dispose();
+      orbitLine.geometry.dispose();
+      orbitLine.material.dispose();
+      glowSprite.geometry.dispose();
+      glowSprite.material.dispose();
+      (glowSprite.material as THREE.SpriteMaterial).map?.dispose();
       globe._destructor?.();
       globeRef.current = null;
       baseRef.current = null;
       highlightRef.current = null;
+      orbitLineRef.current = null;
+      glowSpriteRef.current = null;
     };
     // positions.length only seeds the initial buffer capacity; the update effect grows it as needed
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -396,9 +496,10 @@ export default function GlobeView({ positions, satNames, selectedOrbit, selected
   }, [positions]);
 
   // Highlight layer shows hovered or selected (hover wins); the rAF loop keeps its position lerped
-  // between snapshots using the index stored here.
+  // between snapshots using the index stored here. The glow halo mirrors its visibility.
   useEffect(() => {
     const highlight = highlightRef.current;
+    const glow = glowSpriteRef.current;
     if (!highlight) return;
     const shown = hoveredCatnr ?? selectedCatnr;
     const idx = shown != null ? positions.findIndex((p) => p.catnr === shown) : -1;
@@ -411,8 +512,10 @@ export default function GlobeView({ positions, satNames, selectedOrbit, selected
         hp.needsUpdate = true;
       }
       highlight.visible = true;
+      if (glow) glow.visible = true;
     } else {
       highlight.visible = false;
+      if (glow) glow.visible = false;
     }
   }, [positions, selectedCatnr, hoveredCatnr]);
 
@@ -433,26 +536,28 @@ export default function GlobeView({ positions, satNames, selectedOrbit, selected
     globe.labelsData(entry ? [entry] : []);
   }, [selectedCatnr]);
 
+  // The orbit ground track is drawn as a fat gradient Line2; the color peak loops around the ring
+  // in the rAF loop as a direction cue. Writing new world coords also resets the loop phase.
   useEffect(() => {
     const globe = globeRef.current;
-    if (!globe) return;
+    const orbitLine = orbitLineRef.current;
+    if (!globe || !orbitLine) return;
     if (selectedOrbit && selectedOrbit.length >= 2) {
-      globe.pathsData([{ pts: selectedOrbit }]);
+      const n = selectedOrbit.length;
+      const pos = new Float32Array(n * 3);
+      selectedOrbit.forEach(([lon, lat], i) => {
+        const c = globe.getCoords(lat, lon, ORBIT_ALTITUDE);
+        pos[i * 3] = c.x;
+        pos[i * 3 + 1] = c.y;
+        pos[i * 3 + 2] = c.z;
+      });
+      orbitLine.geometry.setPositions(pos);
+      orbitPointCountRef.current = n;
+      orbitPhaseRef.current = 0;
+      orbitLine.visible = true;
     } else {
-      globe.pathsData([]);
+      orbitLine.visible = false;
     }
-  }, [selectedOrbit]);
-
-  // Dash animation only runs while an orbit path is actually shown.
-  useEffect(() => {
-    const globe = globeRef.current;
-    if (!globe || !selectedOrbit || selectedOrbit.length < 2) return;
-    let gap = 0;
-    const interval = setInterval(() => {
-      gap = (gap + 0.02) % 0.3;
-      globe.pathDashInitialGap(gap);
-    }, 80);
-    return () => clearInterval(interval);
   }, [selectedOrbit]);
 
   return (

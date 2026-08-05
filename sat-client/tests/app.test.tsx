@@ -191,6 +191,25 @@ vi.mock("three", () => {
       this.y = y;
     }
   }
+  class Sprite {
+    geometry = { dispose() {} };
+    material: SpriteMaterial;
+    visible = true;
+    position = { set() {} };
+    scale = { set() {} };
+    constructor(material: SpriteMaterial) {
+      this.material = material;
+    }
+  }
+  class SpriteMaterial {
+    constructor(props: object) {
+      Object.assign(this, props);
+    }
+    dispose() {}
+  }
+  class CanvasTexture {
+    dispose() {}
+  }
   return {
     BufferAttribute,
     BufferGeometry,
@@ -200,6 +219,9 @@ vi.mock("three", () => {
     Color,
     Vector3,
     Vector2,
+    Sprite,
+    SpriteMaterial,
+    CanvasTexture,
     DynamicDrawUsage: Symbol("DynamicDrawUsage"),
   };
 });

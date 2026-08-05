@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, fireEvent } from "@testing-library/react";
-import GlobeView, { findNearest, dotSizeFor, lerpWorldPositions } from "../src/GlobeView";
+import GlobeView, { findNearest, dotSizeFor, lerpWorldPositions, orbitGradientColors } from "../src/GlobeView";
+import { threeLineMocks } from "./setup";
 
 const { createdPoints, sceneAdd, controlsListeners, cameraState, labelsDataMock, labelTextAccessor, rafCallbacks } =
   vi.hoisted(() => ({
@@ -208,6 +209,52 @@ vi.mock("three", () => {
       return this;
     }
   }
+  class Sprite {
+    position: { x: number; y: number; z: number; set: (x: number, y: number, z: number) => void };
+    scale: { x: number; y: number; z: number; set: (x: number, y: number, z: number) => void };
+    geometry: { dispose: () => void };
+    material: SpriteMaterial;
+    visible = true;
+    constructor(material: SpriteMaterial) {
+      this.material = material;
+      this.geometry = { dispose: () => {} };
+      this.position = {
+        x: 0,
+        y: 0,
+        z: 0,
+        set(x: number, y: number, z: number) {
+          this.x = x;
+          this.y = y;
+          this.z = z;
+        },
+      };
+      this.scale = {
+        x: 1,
+        y: 1,
+        z: 1,
+        set(x: number, y: number, z: number) {
+          this.x = x;
+          this.y = y;
+          this.z = z;
+        },
+      };
+      threeLineMocks.createdSprites.push(this);
+    }
+  }
+  class SpriteMaterial {
+    constructor(props: object) {
+      Object.assign(this, props);
+    }
+    dispose() {}
+  }
+  class CanvasTexture {
+    image: unknown;
+    constructor(image: unknown) {
+      this.image = image;
+      threeLineMocks.createdTextures.push(this);
+    }
+    dispose() {}
+  }
   return {
     BufferAttribute,
     BufferGeometry,
@@ -215,6 +262,9 @@ vi.mock("three", () => {
     Points,
     Color,
     Vector3,
+    Sprite,
+    SpriteMaterial,
+    CanvasTexture,
     DynamicDrawUsage: Symbol("DynamicDrawUsage"),
   };
 });
@@ -319,6 +369,42 @@ describe("dotSizeFor", () => {
   });
 });
 
+describe("orbitGradientColors", () => {
+  const peakIndexOf = (colors: Float32Array) => {
+    let best = 0;
+    for (let i = 1; i < colors.length / 3; i++) {
+      if (colors[i * 3] > colors[best * 3]) best = i;
+    }
+    return best;
+  };
+
+  it("peaks at the vertex matching the phase", () => {
+    expect(peakIndexOf(orbitGradientColors(120, 0.25))).toBe(30);
+    expect(peakIndexOf(orbitGradientColors(120, 0.75))).toBe(90);
+    expect(peakIndexOf(orbitGradientColors(120, 0.99))).toBe(119);
+  });
+
+  it("moves the peak as the phase advances", () => {
+    expect(peakIndexOf(orbitGradientColors(120, 0.1))).not.toBe(peakIndexOf(orbitGradientColors(120, 0.6)));
+  });
+
+  it("keeps every color channel in [0,1]", () => {
+    for (const phase of [0, 0.37, 0.99, 1.25]) {
+      const colors = orbitGradientColors(60, phase);
+      for (const v of colors) {
+        expect(v).toBeGreaterThanOrEqual(0);
+        expect(v).toBeLessThanOrEqual(1);
+      }
+    }
+  });
+
+  it("renders the bright peak at the phase and the base color on the far side", () => {
+    const colors = orbitGradientColors(120, 0);
+    expect(colors[0]).toBeCloseTo(0.85, 2); // #d9ffe8 red channel at the peak
+    expect(colors[60 * 3]).toBeCloseTo(0.18, 2); // #2ee88a red channel opposite the peak
+  });
+});
+
 describe("GlobeView", () => {
   beforeEach(() => {
     createdPoints.length = 0;
@@ -327,6 +413,7 @@ describe("GlobeView", () => {
     labelTextAccessor.current = null;
     for (const k of Object.keys(config)) delete config[k];
     for (const k of Object.keys(controlsListeners)) delete controlsListeners[k];
+    for (const key of Object.keys(threeLineMocks)) threeLineMocks[key as keyof typeof threeLineMocks].length = 0;
     cameraState.x = 0;
     cameraState.y = 0;
     cameraState.z = 10;
@@ -360,8 +447,8 @@ describe("GlobeView", () => {
     expect(pos[2]).toBeCloseTo(420 / 6371, 3);
     expect(pos[5]).toBeCloseTo(0.35, 5);
     expect(base.geometry.attributes.color).toBeDefined();
-    expect(sceneAdd).toHaveBeenCalledTimes(1); // base + highlight added in one scene.add call
-    expect(sceneAdd.mock.calls[0]).toHaveLength(2);
+    expect(sceneAdd).toHaveBeenCalledTimes(1); // base + highlight + orbit line + glow sprite added in one scene.add call
+    expect(sceneAdd.mock.calls[0]).toHaveLength(4);
     expect(config.particlesData).toBeUndefined(); // no per-satellite particle layers anymore
   });
 
@@ -407,7 +494,7 @@ describe("GlobeView", () => {
     expect(pos[2]).toBeCloseTo(0.35, 5); // sat 2's altitude (capped GEO)
   });
 
-  it("renders the selected orbit as a path and one stable label named from satNames", () => {
+  it("renders the selected orbit as a Line2 with world-coord positions and one stable label named from satNames", () => {
     render(
       <GlobeView
         positions={positions}
@@ -417,8 +504,16 @@ describe("GlobeView", () => {
         onSelect={() => {}}
       />
     );
-    expect(config.pathsData).toBeDefined();
-    expect((config.pathsData as unknown[]).length).toBeGreaterThan(0);
+    const line = threeLineMocks.createdLines[0];
+    expect(line).toBeDefined();
+    expect(line.visible).toBe(true);
+    // 3 ground-track points -> 9 world coords; mock getCoords maps (lat, lon, alt) -> (lon, lat, alt)
+    const pos = line.geometry.positions as Float32Array;
+    expect(pos).toHaveLength(3 * 3);
+    expect(pos[0]).toBeCloseTo(0, 5);
+    expect(pos[1]).toBeCloseTo(10, 5);
+    expect(pos[2]).toBeCloseTo(0.07, 5);
+    expect(pos[8]).toBeCloseTo(0.07, 5);
     // the label layer is created exactly once when the selection is set
     const labelCalls = labelsDataMock.mock.calls.filter((c) => (c[0] as unknown[]).length > 0);
     expect(labelCalls).toHaveLength(1);
@@ -446,11 +541,67 @@ describe("GlobeView", () => {
     expect(entry.lat).toBe(11);
   });
 
-  it("has no path when no satellite is selected", () => {
+  it("hides the orbit line when no satellite is selected", () => {
     render(
       <GlobeView positions={positions} satNames={satNames} selectedOrbit={null} selectedCatnr={null} onSelect={() => {}} />
     );
-    expect(config.pathsData).toBeUndefined();
+    expect(threeLineMocks.createdLines).toHaveLength(1);
+    expect(threeLineMocks.createdLines[0].visible).toBe(false);
+  });
+
+  it("advances the looping orbit gradient in the rAF loop", () => {
+    const { rerender } = renderGlobe({ selectedCatnr: 1 });
+    const line = threeLineMocks.createdLines[0];
+    expect(line.visible).toBe(false);
+
+    rerender(
+      <GlobeView
+        positions={positions}
+        satNames={satNames}
+        selectedOrbit={[[0, 10], [10, 20], [20, 30]]}
+        selectedCatnr={1}
+        onSelect={() => {}}
+      />
+    );
+    expect(line.visible).toBe(true);
+
+    // frame 1 advances phase 0 -> 0.02 and writes the color attribute
+    const cb1 = rafCallbacks.shift()!;
+    cb1(1000);
+    expect(Array.from(line.geometry.colors as Float32Array)).toEqual(Array.from(orbitGradientColors(3, 0.02)));
+
+    // frame 2 keeps advancing the phase
+    const cb2 = rafCallbacks.shift()!;
+    cb2(2000);
+    expect(Array.from(line.geometry.colors as Float32Array)).toEqual(Array.from(orbitGradientColors(3, 0.04)));
+  });
+
+  it("pulses the highlight dot size and follows the selected satellite with the glow halo", () => {
+    render(
+      <GlobeView positions={positions} satNames={satNames} selectedOrbit={null} selectedCatnr={1} onSelect={() => {}} />
+    );
+    const highlight = createdPoints.find((p) => p.geometry.attributes.position.count === 1)!;
+    expect(highlight.visible).toBe(true);
+    expect(highlight.material.vertexColors).toBe(true);
+    const glow = threeLineMocks.createdSprites[0];
+    expect(glow).toBeDefined();
+    expect(glow.visible).toBe(true);
+    expect(glow.material.map).toBeDefined();
+
+    // two frames at different times -> different pulsing sizes (calm ~3.8s pulse around the base)
+    const cb1 = rafCallbacks.shift()!;
+    cb1(1000);
+    const size1 = highlight.material.size;
+    expect(size1).toBeGreaterThan(0.08 * (1 - 0.35));
+    expect(size1).toBeLessThan(0.08 * (1 + 0.35));
+
+    const cb2 = rafCallbacks.shift()!;
+    cb2(2500);
+    expect(highlight.material.size).not.toBe(size1);
+
+    // the glow sprite tracks the selected satellite's lerped world coords (sat 1: lon 20, lat 10)
+    expect(glow.position.x).toBeCloseTo(20, 5);
+    expect(glow.position.y).toBeCloseTo(10, 5);
   });
 
   it("resizes dots when the camera zooms, keeping the highlight 4x", () => {
