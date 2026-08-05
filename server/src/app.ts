@@ -2,6 +2,7 @@ import { fileURLToPath } from "url";
 import path from "path";
 import { execFile } from "child_process";
 import { promisify } from "util";
+import { readFile, writeFile } from "fs/promises";
 import express from "express";
 import cors from "cors";
 import { parseBbox } from "./bbox";
@@ -11,6 +12,7 @@ import { TtlCache } from "./cache";
 import type { FlightProvider, TrackSource } from "./providers/flight-provider";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const TLE_CACHE_FILE = path.join(__dirname, "..", "data", "tle-active.cache");
 
 const DEFAULT_CACHE_TTL_MS = 15_000;
 const TRACK_CACHE_TTL_MS = 120_000;
@@ -42,6 +44,16 @@ interface LastGoodEntry {
   expiresAt: number;
 }
 
+// Prime the in-memory TLE cache from the last-good disk copy so restarts
+// survive CelesTrak throttles (403s can last up to 2h).
+export function primeTleCacheFromDisk(cache: TtlCache<string>): void {
+  readFile(TLE_CACHE_FILE, "utf8")
+    .then((text) => {
+      if (text.trim().length > 0) cache.set("group:active", text);
+    })
+    .catch(() => {});
+}
+
 export interface CreateAppDeps {
   provider?: FlightProvider;
   cacheTtlMs?: number;
@@ -56,6 +68,7 @@ export function createApp(
   const cache = new TtlCache<FlightState[]>(cacheTtlMs ?? DEFAULT_CACHE_TTL_MS);
   const trackCache = new TtlCache<FlightTrack | null>(trackCacheTtlMs ?? TRACK_CACHE_TTL_MS);
   const tleCache = new TtlCache<string>(tleCacheTtlMs ?? TLE_CACHE_TTL_MS);
+  primeTleCacheFromDisk(tleCache);
   // The fallback must outlive the hot cache, or it is already expired the moment the primary fails.
   const lastGoodTtlMs = Math.max(cacheTtlMs ?? DEFAULT_CACHE_TTL_MS, DEFAULT_LAST_GOOD_TTL_MS);
   const lastGood = new Map<string, LastGoodEntry>();
@@ -180,7 +193,11 @@ export function createApp(
       return;
     }
     try {
-      const tle = await tleCache.getOrLoad(`group:${group}`, () => fetchCelesTrak(`GROUP=${group}&FORMAT=tle`));
+      const tle = await tleCache.getOrLoad(`group:${group}`, async () => {
+        const text = await fetchCelesTrak(`GROUP=${group}&FORMAT=tle`);
+        writeFile(TLE_CACHE_FILE, text).catch(() => {});
+        return text;
+      });
       res.type("text/plain").send(tle);
     } catch {
       res.status(502).json({ error: "provider unreachable" });

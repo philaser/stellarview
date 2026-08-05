@@ -25,4 +25,10 @@ describe("TtlCache", () => {
     expect(load).toHaveBeenCalledTimes(2);
     vi.useRealTimers();
   });
+
+  it("set stores a value retrievable by get", () => {
+    const c = new TtlCache<number>(1000);
+    c.set("a", 42);
+    expect(c.get("a")).toBe(42);
+  });
 });

@@ -2,6 +2,7 @@ import { describe, it, expect, vi } from "vitest";
 import http from "http";
 import type { AddressInfo } from "net";
 import { execFile } from "child_process";
+import { readFile, writeFile } from "fs/promises";
 import request from "supertest";
 import { createApp } from "../src/app";
 import type { FlightProvider, TrackSource } from "../src/providers/flight-provider";
@@ -11,6 +12,11 @@ vi.mock("child_process", async () => {
   const actual = await vi.importActual<typeof import("child_process")>("child_process");
   return { ...actual, execFile: vi.fn() };
 });
+
+vi.mock("fs/promises", () => ({
+  writeFile: vi.fn().mockResolvedValue(undefined),
+  readFile: vi.fn().mockRejectedValue(new Error("no cache file")),
+}));
 
 // promisify(execFile) resolves via the callback, so the mock must invoke it.
 function stubCurl(stdout: string) {
@@ -311,9 +317,26 @@ describe("GET /api/tle", () => {
     expect(res1.status).toBe(200);
     expect(res1.text).toContain("ISS (ZARYA)");
     expect(String(vi.mocked(fetch).mock.calls[0][0])).toContain("GROUP=active");
+    expect(vi.mocked(writeFile)).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(writeFile)).toHaveBeenCalledWith(
+      expect.stringContaining("tle-active.cache"),
+      expect.stringContaining("ISS (ZARYA)")
+    );
     const res2 = await request(app).get("/api/tle?group=active");
     expect(res2.status).toBe(200);
     expect(fetch).toHaveBeenCalledTimes(1); // cached
+    vi.unstubAllGlobals();
+  });
+
+  it("primes the group cache from the disk cache file on boot", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: true, status: 200, text: async () => tleBlock }));
+    vi.mocked(readFile).mockResolvedValueOnce(tleBlock);
+    const app = createApp({ provider: okProvider });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    const res = await request(app).get("/api/tle?group=active");
+    expect(res.status).toBe(200);
+    expect(res.text).toContain("ISS (ZARYA)");
+    expect(fetch).not.toHaveBeenCalled();
     vi.unstubAllGlobals();
   });
 

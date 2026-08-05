@@ -18,6 +18,10 @@ export class TtlCache<T> {
     return entry.value;
   }
 
+  set(key: string, value: T): void {
+    this.entries.set(key, { value, expiresAt: Date.now() + this.ttlMs });
+  }
+
   async getOrLoad(key: string, load: () => Promise<T>): Promise<T> {
     const cached = this.get(key);
     if (cached !== undefined) return cached;
