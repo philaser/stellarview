@@ -70,14 +70,14 @@ vi.mock("maplibre-gl", () => ({
 vi.mock("globe.gl", () => ({
   default: class {
     constructor() {}
-    onPointClick() { return this; }
-    onPointHover() { return this; }
-    pointsData() { return this; }
-    pointLat() { return this; }
-    pointLng() { return this; }
-    pointAltitude() { return this; }
-    pointColor() { return this; }
-    pointRadius() { return this; }
+    onParticleClick() { return this; }
+    onParticleHover() { return this; }
+    particlesData() { return this; }
+    particleLat() { return this; }
+    particleLng() { return this; }
+    particleAltitude() { return this; }
+    particlesColor() { return this; }
+    particlesSize() { return this; }
     polygonsData() { return this; }
     polygonCapColor() { return this; }
     polygonSideColor() { return this; }

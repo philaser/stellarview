@@ -8,31 +8,31 @@ const config: Record<string, unknown> = {};
 vi.mock("globe.gl", () => ({
   default: class {
     constructor() {}
-    onPointClick(cb: (p: unknown) => void) {
-      handlers.onPointClick = cb;
+    onParticleClick(cb: (p: unknown) => void) {
+      handlers.onParticleClick = cb;
       return this;
     }
-    onPointHover(cb: (p: unknown) => void) {
-      handlers.onPointHover = cb;
+    onParticleHover(cb: (p: unknown) => void) {
+      handlers.onParticleHover = cb;
       return this;
     }
-    pointsData(d: unknown) {
-      config.pointsData = d;
+    particlesData(d: unknown) {
+      config.particlesData = d;
       return this;
     }
-    pointLat() {
+    particleLat() {
       return this;
     }
-    pointLng() {
+    particleLng() {
       return this;
     }
-    pointAltitude() {
+    particleAltitude() {
       return this;
     }
-    pointColor() {
+    particlesColor() {
       return this;
     }
-    pointRadius() {
+    particlesSize() {
       return this;
     }
     polygonsData(d: unknown) {
@@ -144,18 +144,18 @@ describe("GlobeView", () => {
     { catnr: 2, lat: -30, lon: 60, altKm: 35786, velocityKms: 3.1, color: "#fbbf24", selected: false },
   ];
 
-  it("renders positions as points with globe-radius-normalized altitude, capped to a readable shell", () => {
+  it("renders positions as particles with globe-radius-normalized altitude, capped to a readable shell", () => {
     render(<GlobeView positions={positions} selectedOrbit={null} selectedCatnr={null} onSelect={() => {}} />);
-    const data = config.pointsData as Array<{ altR: number }>;
+    const data = config.particlesData as Array<Array<{ altR: number }>>;
     expect(data).toHaveLength(2);
-    expect(data[0].altR).toBeCloseTo(420 / 6371, 3);
-    expect(data[1].altR).toBe(0.35);
+    expect(data[0][0].altR).toBeCloseTo(420 / 6371, 3);
+    expect(data[1][0].altR).toBe(0.35);
   });
 
   it("reports clicks via onSelect", () => {
     const onSelect = vi.fn();
     render(<GlobeView positions={positions} selectedOrbit={null} selectedCatnr={null} onSelect={onSelect} />);
-    handlers.onPointClick?.({ catnr: 2 });
+    handlers.onParticleClick?.({ catnr: 2 });
     expect(onSelect).toHaveBeenCalledWith(2);
   });
 

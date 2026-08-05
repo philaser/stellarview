@@ -37,20 +37,22 @@ export default function GlobeView({ positions, selectedOrbit, selectedCatnr, onS
       .pointOfView({ lat: 20, lng: 0, altitude: 3.2 });
 
     globe
-      .pointsData([])
-      .pointLat((d) => (d as SatDot).lat)
-      .pointLng((d) => (d as SatDot).lon)
-      .pointAltitude((d) => (d as { altR?: number }).altR ?? 0.1)
-      .pointColor((d) => (d as SatDot).color ?? "#e5e7eb")
-      .pointRadius((d) =>
-        (d as SatDot).catnr === selectedRef.current
-          ? 0.05
-          : hoveredRef.current === (d as SatDot).catnr
-            ? 0.045
-            : 0.018
-      )
-      .onPointClick((p) => onSelectRef.current((p as SatDot).catnr))
-      .onPointHover((p) => {
+      .particlesData([])
+      .particleLat((d) => (d as SatDot).lat)
+      .particleLng((d) => (d as SatDot).lon)
+      .particleAltitude((d) => (d as SatDot & { altR: number }).altR)
+      // particles layer groups each datum into a particle list; one sat per group keeps per-sat color/size
+      .particlesColor((d) => (d as SatDot[])[0]?.color ?? "#e5e7eb")
+      .particlesSize((d) => {
+        const sat = (d as SatDot[])[0];
+        return sat.catnr === selectedRef.current
+          ? 0.9
+          : hoveredRef.current === sat.catnr
+            ? 0.7
+            : 0.25;
+      })
+      .onParticleClick((p) => onSelectRef.current((p as SatDot).catnr))
+      .onParticleHover((p) => {
         hoveredRef.current = p ? (p as SatDot).catnr : null;
         if (containerRef.current) {
           containerRef.current.style.cursor = p ? "pointer" : "";
@@ -105,9 +107,9 @@ export default function GlobeView({ positions, selectedOrbit, selectedCatnr, onS
     const globe = globeRef.current;
     if (!globe) return;
     const pts = positions.map((p) => ({ ...p, altR: altR(p.altKm) }));
-    globe.pointsData(pts);
+    globe.particlesData(pts.map((p) => [p]));
     globe.labelsData(positions.filter((p) => p.catnr === selectedCatnr));
-    globe.pointsData(pts); // re-apply after label change to refresh radius expressions
+    globe.particlesData(pts.map((p) => [p])); // re-apply after label change to refresh size expressions
   }, [positions, selectedCatnr]);
 
   useEffect(() => {
