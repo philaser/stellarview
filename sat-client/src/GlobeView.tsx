@@ -14,29 +14,30 @@ const ALT_CAP = 0.35;
 const altR = (altKm: number) => Math.min(altKm / 6371, ALT_CAP);
 
 // Point sizes in globe-radius units; dots gently grow as the camera zooms in (~2-5px dots at the
-// default camera, up to a visible 9% of the globe radius). Highlight stays 4x the base size.
+// default camera, up to a visible 9% of the globe radius). Highlight stays 5x the base size and
+// the glow halo ~4.5x so the selection reads distinctly from the trajectory head.
 const BASE_SIZE = 0.02;
-const HIGHLIGHT_FACTOR = 4;
+const HIGHLIGHT_FACTOR = 5;
 const MIN_DOT_SIZE = 0.01;
 const MAX_DOT_SIZE = 0.09;
 const SIZE_CURVE = 0.35;
 
 // Trajectory: a fat Line2 circling the globe just above the surface. A per-vertex color gradient
-// (bright peak fading both ways to the base green) loops around the ring every frame to show
+// (sharp white-hot head fading to a dim green tail) loops around the ring every frame to show
 // direction of travel; Line2 renders with depth testing so the far side is occluded by the globe.
 const ORBIT_ALTITUDE = 0.07;
 const ORBIT_LINE_WIDTH = 5;
-// #2ee88a (base) -> #d9ffe8 (bright peak)
-const ORBIT_BASE_RGB: [number, number, number] = [0.18, 0.91, 0.54];
-const ORBIT_PEAK_RGB: [number, number, number] = [0.85, 1, 0.91];
 const ORBIT_PHASE_STEP = 0.02;
 
-// Selected-satellite highlight: pulsing green dot (#22ff88) plus a soft radial-gradient halo sprite.
+// Selected-satellite highlight: pulsing green dot (#22ff88) plus a soft radial-gradient halo sprite
+// that breathes with the same ~3.8s phase so the selection reads as a strong pulsing blob.
 const HIGHLIGHT_RGB: [number, number, number] = [0.13, 1, 0.53];
-const GLOW_FACTOR = 4;
+const GLOW_FACTOR = 4.5;
 const GLOW_TEX_SIZE = 128;
-const PULSE_AMPLITUDE = 0.35;
-const PULSE_PERIOD_MS = 600; // ~3.8s calm pulse
+const PULSE_AMPLITUDE = 0.55;
+const PULSE_PERIOD_MS = 600; // ~3.8s pulse
+const GLOW_PULSE_MEAN = 1.2;
+const GLOW_PULSE_AMPLITUDE = 0.5;
 
 /** Dot size (globe-radius units) for a camera at `distance` from a reference distance `refDist`. */
 export function dotSizeFor(distance: number, refDist: number, base: number): number {
@@ -56,22 +57,27 @@ export function lerpWorldPositions(
 }
 
 /**
- * Per-vertex RGB colors for the orbit ring: a bright peak that fades both ways to the base line
- * color. `phase` (fraction of the ring, mod 1) drives the peak position, so advancing it each
- * frame makes the gradient loop around the orbit and read as a direction arrow.
+ * Per-vertex RGB colors for the orbit ring: a sharp white-hot gaussian head that fades to a dim
+ * green tail, looping around the ring. `phase` (fraction of the ring, mod 1) drives the head
+ * position, so advancing it each frame makes the gradient loop around the orbit and read as a
+ * direction arrow.
  */
 export function orbitGradientColors(vertexCount: number, phase: number): Float32Array {
-  const out = new Float32Array(vertexCount * 3);
-  const peak = phase - Math.floor(phase);
+  const colors = new Float32Array(vertexCount * 3);
+  const SIGMA = 0.09; // head width as a fraction of the ring
+  const HEAD: [number, number, number] = [255, 255, 255];      // white-hot head
+  const TAIL: [number, number, number] = [46, 232, 138];       // green base (#2ee88a)
+  const TAIL_BRIGHTNESS = 0.35;                                 // tail clearly dimmer
   for (let i = 0; i < vertexCount; i++) {
-    const u = i / vertexCount;
-    const d = Math.min(Math.abs(u - peak), 1 - Math.abs(u - peak));
-    const t = 1 - 2 * d;
-    out[i * 3] = ORBIT_BASE_RGB[0] + (ORBIT_PEAK_RGB[0] - ORBIT_BASE_RGB[0]) * t;
-    out[i * 3 + 1] = ORBIT_BASE_RGB[1] + (ORBIT_PEAK_RGB[1] - ORBIT_BASE_RGB[1]) * t;
-    out[i * 3 + 2] = ORBIT_BASE_RGB[2] + (ORBIT_PEAK_RGB[2] - ORBIT_BASE_RGB[2]) * t;
+    let d = (i / vertexCount - phase) % 1;
+    if (d < 0) d += 1;
+    if (d > 0.5) d = 1 - d; // shortest distance around the ring
+    const w = Math.exp(-(d * d) / (2 * SIGMA * SIGMA));
+    colors[i * 3] = (TAIL[0] * TAIL_BRIGHTNESS + (HEAD[0] - TAIL[0] * TAIL_BRIGHTNESS) * w) / 255;
+    colors[i * 3 + 1] = (TAIL[1] * TAIL_BRIGHTNESS + (HEAD[1] - TAIL[1] * TAIL_BRIGHTNESS) * w) / 255;
+    colors[i * 3 + 2] = (TAIL[2] * TAIL_BRIGHTNESS + (HEAD[2] - TAIL[2] * TAIL_BRIGHTNESS) * w) / 255;
   }
-  return out;
+  return colors;
 }
 
 // Screen-space picking radii (px) around the cursor; the nearest projected dot wins.
@@ -362,12 +368,16 @@ export default function GlobeView({ positions, satNames, selectedOrbit, selected
           const hp = highlight.geometry.attributes.position as THREE.BufferAttribute;
           hp.setXYZ(0, lerpOutRef.current[hi * 3], lerpOutRef.current[hi * 3 + 1], lerpOutRef.current[hi * 3 + 2]);
           hp.needsUpdate = true;
-          // pulsing dot size + glow halo track the (lerped) selected satellite
+          // pulsing dot size + glow halo track the (lerped) selected satellite; the halo breathes
+          // with the same phase so the selection reads as a strong pulsing blob
+          const pulse = Math.sin(now / PULSE_PERIOD_MS);
           (highlight.material as THREE.PointsMaterial).size =
-            highlightBaseRef.current * (1 + PULSE_AMPLITUDE * Math.sin(now / PULSE_PERIOD_MS));
+            highlightBaseRef.current * (1 + PULSE_AMPLITUDE * pulse);
           const glow = glowSpriteRef.current;
           if (glow) {
             glow.position.set(lerpOutRef.current[hi * 3], lerpOutRef.current[hi * 3 + 1], lerpOutRef.current[hi * 3 + 2]);
+            const gScale = dotSizeRef.current * GLOW_FACTOR * (GLOW_PULSE_MEAN + GLOW_PULSE_AMPLITUDE * pulse);
+            glow.scale.set(gScale, gScale, 1);
           }
         }
 

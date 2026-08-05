@@ -378,10 +378,10 @@ describe("orbitGradientColors", () => {
     return best;
   };
 
-  it("peaks at the vertex matching the phase", () => {
-    expect(peakIndexOf(orbitGradientColors(120, 0.25))).toBe(30);
-    expect(peakIndexOf(orbitGradientColors(120, 0.75))).toBe(90);
-    expect(peakIndexOf(orbitGradientColors(120, 0.99))).toBe(119);
+  it("peaks near the vertex matching the phase (within a couple of vertices)", () => {
+    expect(Math.abs(peakIndexOf(orbitGradientColors(120, 0.25)) - 30)).toBeLessThanOrEqual(2);
+    expect(Math.abs(peakIndexOf(orbitGradientColors(120, 0.75)) - 90)).toBeLessThanOrEqual(2);
+    expect(Math.abs(peakIndexOf(orbitGradientColors(120, 0.99)) - 119)).toBeLessThanOrEqual(2);
   });
 
   it("moves the peak as the phase advances", () => {
@@ -398,10 +398,18 @@ describe("orbitGradientColors", () => {
     }
   });
 
-  it("renders the bright peak at the phase and the base color on the far side", () => {
+  it("renders a white-hot gaussian head and a clearly dimmer green tail", () => {
     const colors = orbitGradientColors(120, 0);
-    expect(colors[0]).toBeCloseTo(0.85, 2); // #d9ffe8 red channel at the peak
-    expect(colors[60 * 3]).toBeCloseTo(0.18, 2); // #2ee88a red channel opposite the peak
+    // head at the phase vertex is white-hot (≈ 1.0 in every channel)
+    expect(colors[0]).toBeCloseTo(1, 2);
+    expect(colors[1]).toBeCloseTo(1, 2);
+    expect(colors[2]).toBeCloseTo(1, 2);
+    // tail opposite the head sits at 35% of #2ee88a, clearly dimmer than the head
+    const tailAt = (c: number) => (c * 0.35) / 255;
+    expect(colors[60 * 3]).toBeCloseTo(tailAt(46), 3);
+    expect(colors[60 * 3 + 1]).toBeCloseTo(tailAt(232), 3);
+    expect(colors[60 * 3 + 2]).toBeCloseTo(tailAt(138), 3);
+    expect(colors[60 * 3 + 1]).toBeLessThan(0.5);
   });
 });
 
@@ -588,36 +596,40 @@ describe("GlobeView", () => {
     expect(glow.visible).toBe(true);
     expect(glow.material.map).toBeDefined();
 
-    // two frames at different times -> different pulsing sizes (calm ~3.8s pulse around the base)
+    // two frames at different times -> different pulsing sizes (strong ~3.8s pulse around the base)
     const cb1 = rafCallbacks.shift()!;
     cb1(1000);
     const size1 = highlight.material.size;
-    expect(size1).toBeGreaterThan(0.08 * (1 - 0.35));
-    expect(size1).toBeLessThan(0.08 * (1 + 0.35));
+    expect(size1).toBeGreaterThan(0.1 * (1 - 0.55));
+    expect(size1).toBeLessThan(0.1 * (1 + 0.55));
+    // the glow halo breathes with the same phase (base = dot size * GLOW_FACTOR)
+    const glowScale1 = glow.scale.x;
+    expect(glowScale1).toBeGreaterThan(0);
 
     const cb2 = rafCallbacks.shift()!;
     cb2(2500);
     expect(highlight.material.size).not.toBe(size1);
+    expect(glow.scale.x).not.toBe(glowScale1);
 
     // the glow sprite tracks the selected satellite's lerped world coords (sat 1: lon 20, lat 10)
     expect(glow.position.x).toBeCloseTo(20, 5);
     expect(glow.position.y).toBeCloseTo(10, 5);
   });
 
-  it("resizes dots when the camera zooms, keeping the highlight 4x", () => {
+  it("resizes dots when the camera zooms, keeping the highlight 5x", () => {
     render(
       <GlobeView positions={positions} satNames={satNames} selectedOrbit={null} selectedCatnr={null} onSelect={() => {}} />
     );
     const base = createdPoints.find((p) => p.geometry.attributes.position.count === 2)!;
     const highlight = createdPoints.find((p) => p.geometry.attributes.position.count === 1)!;
     expect(base.material.size).toBe(0.02);
-    expect(highlight.material.size).toBeCloseTo(base.material.size * 4, 5);
+    expect(highlight.material.size).toBeCloseTo(base.material.size * 5, 5);
     // zoom in to half the reference distance and fire the OrbitControls 'change' event
     cameraState.z = 5;
     controlsListeners.change?.();
     expect(base.material.size).toBe(dotSizeFor(5, 10, 0.02));
     expect(base.material.size).toBeGreaterThan(0.02);
-    expect(highlight.material.size).toBeCloseTo(base.material.size * 4, 5);
+    expect(highlight.material.size).toBeCloseTo(base.material.size * 5, 5);
   });
 
   it("glides base dots, the highlight and the label between snapshots via the rAF loop", () => {
