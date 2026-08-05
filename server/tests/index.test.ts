@@ -1,10 +1,41 @@
 import { describe, it, expect, vi } from "vitest";
 import http from "http";
 import type { AddressInfo } from "net";
+import { execFile } from "child_process";
 import request from "supertest";
 import { createApp } from "../src/app";
 import type { FlightProvider, TrackSource } from "../src/providers/flight-provider";
 import type { FlightState, FlightTrack } from "../src/types";
+
+vi.mock("child_process", async () => {
+  const actual = await vi.importActual<typeof import("child_process")>("child_process");
+  return { ...actual, execFile: vi.fn() };
+});
+
+// promisify(execFile) resolves via the callback, so the mock must invoke it.
+function stubCurl(stdout: string) {
+  vi.mocked(execFile).mockImplementation(((
+    _file: string,
+    _args: readonly string[] | undefined,
+    _options: Record<string, unknown>,
+    cb: (err: Error | null, result: { stdout: string; stderr: string }) => void
+  ) => {
+    cb(null, { stdout, stderr: "" });
+    return undefined as unknown as ReturnType<typeof execFile>;
+  }) as typeof execFile);
+}
+
+function stubCurlFailure() {
+  vi.mocked(execFile).mockImplementation(((
+    _file: string,
+    _args: readonly string[] | undefined,
+    _options: Record<string, unknown>,
+    cb: (err: Error | null, result: { stdout: string; stderr: string }) => void
+  ) => {
+    cb(new Error("curl failed"), { stdout: "", stderr: "" });
+    return undefined as unknown as ReturnType<typeof execFile>;
+  }) as typeof execFile);
+}
 
 const flight: FlightState = {
   icao24: "mock1",
@@ -259,6 +290,7 @@ describe("GET /api/tle", () => {
 
   it("returns 502 when CelesTrak is unreachable", async () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: false, status: 500, text: async () => "" }));
+    stubCurlFailure();
     const app = createApp({ provider: okProvider });
     const res = await request(app).get("/api/tle?catnr=25544");
     expect(res.status).toBe(502);
@@ -291,5 +323,20 @@ describe("GET /api/tle", () => {
     expect(res1.status).toBe(400);
     const res2 = await request(app).get("/api/tle?catnr=25544&group=active");
     expect(res2.status).toBe(400);
+  });
+
+  it("falls back to curl when CelesTrak 403s the fetch", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: false, status: 403, text: async () => "" }));
+    vi.mocked(execFile).mockClear();
+    stubCurl(tleBlock);
+    const app = createApp({ provider: okProvider });
+    const res = await request(app).get("/api/tle?group=active");
+    expect(res.status).toBe(200);
+    expect(res.text).toContain("ISS (ZARYA)");
+    expect(vi.mocked(execFile)).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(execFile).mock.calls[0][0]).toBe("curl");
+    const curlArgs = String(vi.mocked(execFile).mock.calls[0][1]);
+    expect(curlArgs).toContain("GROUP=active");
+    vi.unstubAllGlobals();
   });
 });

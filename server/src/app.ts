@@ -1,5 +1,7 @@
 import { fileURLToPath } from "url";
 import path from "path";
+import { execFile } from "child_process";
+import { promisify } from "util";
 import express from "express";
 import cors from "cors";
 import { parseBbox } from "./bbox";
@@ -15,6 +17,24 @@ const TRACK_CACHE_TTL_MS = 120_000;
 const TLE_CACHE_TTL_MS = 43_200_000; // 12h
 const DEFAULT_LAST_GOOD_TTL_MS = 60_000;
 const MAX_LAST_GOOD_KEYS = 100;
+
+const execFileP = promisify(execFile);
+
+// CelesTrak intermittently 403s on Node's TLS fingerprint, so fall back to curl.
+async function fetchCelesTrak(params: string): Promise<string> {
+  try {
+    const res = await fetch(`https://celestrak.org/NORAD/elements/gp.php?${params}`);
+    if (!res.ok) throw new Error(`CelesTrak responded ${res.status}`);
+    return await res.text();
+  } catch {
+    const { stdout } = await execFileP(
+      "curl",
+      ["-sS", "--fail", "-A", "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36", `https://celestrak.org/NORAD/elements/gp.php?${params}`],
+      { timeout: 30_000, maxBuffer: 32 * 1024 * 1024 }
+    );
+    return stdout;
+  }
+}
 
 interface LastGoodEntry {
   flights: FlightState[];
@@ -145,13 +165,7 @@ export function createApp(
       try {
         const tle = await tleCache.getOrLoad(`catnr:${catnr}`, async () => {
           const blocks = await Promise.all(
-            catnr.split(",").map(async (c) => {
-              const upstream = await fetch(
-                `https://celestrak.org/NORAD/elements/gp.php?CATNR=${c}&FORMAT=tle`
-              );
-              if (!upstream.ok) throw new Error(`CelesTrak responded ${upstream.status}`);
-              return await upstream.text();
-            })
+            catnr.split(",").map((c) => fetchCelesTrak(`CATNR=${c}&FORMAT=tle`))
           );
           return blocks.filter((b) => b.includes("\n2 ")).join("");
         });
@@ -166,13 +180,7 @@ export function createApp(
       return;
     }
     try {
-      const tle = await tleCache.getOrLoad(`group:${group}`, async () => {
-        const upstream = await fetch(
-          `https://celestrak.org/NORAD/elements/gp.php?GROUP=${group}&FORMAT=tle`
-        );
-        if (!upstream.ok) throw new Error(`CelesTrak responded ${upstream.status}`);
-        return await upstream.text();
-      });
+      const tle = await tleCache.getOrLoad(`group:${group}`, () => fetchCelesTrak(`GROUP=${group}&FORMAT=tle`));
       res.type("text/plain").send(tle);
     } catch {
       res.status(502).json({ error: "provider unreachable" });
