@@ -144,12 +144,12 @@ describe("GlobeView", () => {
     { catnr: 2, lat: -30, lon: 60, altKm: 35786, velocityKms: 3.1, color: "#fbbf24", selected: false },
   ];
 
-  it("renders positions as points with globe-radius-normalized altitude", () => {
+  it("renders positions as points with globe-radius-normalized altitude, capped to a readable shell", () => {
     render(<GlobeView positions={positions} selectedOrbit={null} selectedCatnr={null} onSelect={() => {}} />);
     const data = config.pointsData as Array<{ altR: number }>;
     expect(data).toHaveLength(2);
     expect(data[0].altR).toBeCloseTo(420 / 6371, 3);
-    expect(data[1].altR).toBeCloseTo(35786 / 6371, 1);
+    expect(data[1].altR).toBe(0.35);
   });
 
   it("reports clicks via onSelect", () => {

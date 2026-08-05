@@ -5,6 +5,10 @@ import type { SatDot } from "./MapView";
 const COUNTRIES_URL =
   "https://raw.githubusercontent.com/vasturiano/globe.gl/master/example/datasets/ne_110m_admin_0_countries.geojson";
 
+// Cap visual altitude so GEO/MEO shells hug the globe instead of rendering as streaks from inside the camera.
+const ALT_CAP = 0.35;
+const altR = (altKm: number) => Math.min(altKm / 6371, ALT_CAP);
+
 export interface GlobeViewProps {
   positions: SatDot[];
   selectedOrbit: [number, number][] | null;
@@ -28,13 +32,13 @@ export default function GlobeView({ positions, selectedOrbit, selectedCatnr, onS
       .showAtmosphere(true)
       .atmosphereColor("#3a4a6b")
       .showGraticules(false)
-      .pointOfView({ lat: 20, lng: 0, altitude: 2.5 });
+      .pointOfView({ lat: 20, lng: 0, altitude: 3.2 });
 
     globe
       .pointsData([])
       .pointLat((d) => (d as SatDot).lat)
       .pointLng((d) => (d as SatDot).lon)
-      .pointAltitude((d) => (d as SatDot).altKm / 6371)
+      .pointAltitude((d) => (d as { altR?: number }).altR ?? 0.1)
       .pointColor((d) => (d as SatDot).color ?? "#e5e7eb")
       .pointRadius((d) =>
         (d as SatDot).catnr === selectedRef.current
@@ -58,7 +62,7 @@ export default function GlobeView({ positions, selectedOrbit, selectedCatnr, onS
       .labelText((d) => String((d as SatDot).catnr))
       .labelColor(() => "#ffffff")
       .labelSize(1.2)
-      .labelAltitude((d) => (d as SatDot).altKm / 6371 + 0.03)
+      .labelAltitude((d) => altR((d as SatDot).altKm) + 0.03)
       .labelResolution(2);
 
     globe
@@ -98,7 +102,7 @@ export default function GlobeView({ positions, selectedOrbit, selectedCatnr, onS
   useEffect(() => {
     const globe = globeRef.current;
     if (!globe) return;
-    const pts = positions.map((p) => ({ ...p, altR: p.altKm / 6371 }));
+    const pts = positions.map((p) => ({ ...p, altR: altR(p.altKm) }));
     globe.pointsData(pts);
     globe.labelsData(positions.filter((p) => p.catnr === selectedCatnr));
     globe.pointsData(pts); // re-apply after label change to refresh radius expressions
