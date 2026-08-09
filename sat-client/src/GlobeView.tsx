@@ -336,7 +336,7 @@ export default function GlobeView({ positions, satNames, selectedOrbit, selected
       .then((geo: { features: object[] }) => {
         globe
           .polygonsData(geo.features)
-          .polygonCapColor(() => "rgba(30, 41, 59, 0.85)")
+          .polygonCapColor(() => "rgba(30, 41, 59, 0.12)")
           .polygonSideColor(() => "rgba(56, 89, 138, 0.35)")
           .polygonStrokeColor(() => "rgba(96, 165, 250, 0.25)")
           .polygonAltitude(0.002);
