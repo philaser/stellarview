@@ -1,0 +1,404 @@
+<h2>Design directions v2 — pick your favorite</h2>
+<p class="subtitle">Now 7 options with real variance in style AND layout: floating panels, bottom docks, icon rails, light theme, terminal look. Click to select.</p>
+
+<style>
+  .mock { position: relative; width: 100%; height: 250px; border-radius: 10px; overflow: hidden; font-family: system-ui, sans-serif; }
+  .mock .ui-chip { position: absolute; display: flex; align-items: center; gap: 6px; font-size: 10px; z-index: 2; }
+  .mock .pulse-dot { width: 7px; height: 7px; border-radius: 50%; background: #34d399; }
+  .mock .mini-map { position: absolute; inset: 0; }
+  .mock .globe-hint { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); border-radius: 50%; }
+
+  /* ================= B: MISSION CONTROL (kept) ================= */
+  .hud .mini-map { background: #05070a; }
+  .hud .mini-map::before { content:""; position: absolute; inset: 0; background: repeating-linear-gradient(0deg, transparent 0 3px, rgba(74,222,128,.035) 3px 4px); }
+  .hud .globe-hint { width: 200px; height: 200px; border: 1px solid rgba(74,222,128,.28); background: radial-gradient(circle at 40% 35%, #122b1d 0%, #0a1710 55%, #040805 100%); box-shadow: 0 0 0 8px rgba(74,222,128,.05), inset 0 0 60px rgba(0,0,0,.8); }
+  .hud .globe-hint::after { content:""; position: absolute; inset: -4px; border-radius: 50%; border-top: 1px dashed rgba(74,222,128,.5); animation: spin 14s linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .hud .ui-chip { background: rgba(5,10,8,.85); border: 1px solid rgba(74,222,128,.4); color: #a7f3d0; font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 9px; border-radius: 2px; padding: 6px 9px; text-transform: uppercase; letter-spacing: .08em; }
+  .hud .gear { left: 14px; top: 14px; animation: hud-in .3s steps(4) both; }
+  .hud .mode { left: 88px; top: 14px; animation: hud-in .3s .08s steps(4) both; }
+  .hud .filters { left: 14px; top: 54px; flex-direction: column; align-items: stretch; gap: 5px; width: 168px; padding: 9px; animation: hud-in .3s .14s steps(4) both; }
+  .hud .filters .f-title { font-size: 8px; color: #34d399; letter-spacing: .18em; display: flex; align-items: center; gap: 6px; }
+  .hud .f-title::before { content:"●"; font-size: 7px; animation: blink 1.2s steps(1) infinite; }
+  @keyframes blink { 50% { opacity: 0; } }
+  .hud .f-row { display: flex; flex-wrap: wrap; gap: 4px; }
+  .hud .f-row span { font-size: 8px; font-family: ui-monospace, monospace; padding: 2px 6px; border: 1px solid rgba(74,222,128,.3); color: #6ee7b7; }
+  .hud .f-row span.on { background: rgba(74,222,128,.15); color: #d1fae5; box-shadow: inset 0 0 8px rgba(74,222,128,.15); }
+  .hud .search { left: 14px; top: 200px; width: 168px; color: #4ade80; font-family: ui-monospace, monospace; }
+  .hud .panel-r { right: 14px; top: 14px; width: 180px; flex-direction: column; align-items: stretch; gap: 4px; font-family: ui-monospace, monospace; animation: hud-in .3s .2s steps(4) both; }
+  .hud .panel-r .p-name { font-size: 11px; color: #d1fae5; letter-spacing: .06em; }
+  .hud .panel-r .p-row { display: flex; justify-content: space-between; font-size: 8.5px; color: #4ade80; }
+  .hud .panel-r .p-row b { color: #d1fae5; }
+  .hud .pulse-dot { width: 8px; height: 8px; border: 1px solid #34d399; transform: rotate(45deg); animation: blink 1.2s steps(1) infinite; }
+  .hud .obs { left: 50%; bottom: 12px; transform: translateX(-50%); animation: hud-in .3s .26s steps(4) both; }
+  @keyframes hud-in { from { opacity: 0; transform: translateY(-6px); } to { opacity: 1; transform: none; } }
+  .hud .sats i { position: absolute; width: 2px; height: 2px; background: #4ade80; animation: blink 1.6s steps(1) infinite; }
+
+  /* ================= C: AURORA (kept) ================= */
+  .aurora .mini-map { background: linear-gradient(160deg, #0c1220 0%, #070b14 60%, #05070d 100%); }
+  .aurora .globe-hint { width: 240px; height: 240px; background: radial-gradient(circle at 36% 30%, #1e3a8a 0%, #10205a 35%, #08112e 65%, #03071a 100%); box-shadow: inset -40px -25px 90px rgba(0,0,0,.8), 0 0 120px rgba(99,102,241,.18); }
+  .aurora .aurora-glow { position: absolute; left: 50%; top: 50%; width: 300px; height: 170px; transform: translate(-50%, -60%); filter: blur(46px); opacity: .5; background: linear-gradient(90deg, #6366f1, #22d3ee, #34d399); animation: aurora-drift 7s ease-in-out infinite alternate; }
+  @keyframes aurora-drift { from { transform: translate(-50%,-60%) rotate(0deg) scaleX(1); } to { transform: translate(-46%,-56%) rotate(3deg) scaleX(1.25); } }
+  .aurora .ui-chip { background: rgba(255,255,255,.05); border: 1px solid rgba(255,255,255,.09); border-radius: 999px; color: #e5e7eb; padding: 7px 12px; font-size: 10px; backdrop-filter: blur(8px); }
+  .aurora .gear { left: 14px; top: 14px; width: 34px; height: 34px; justify-content: center; font-size: 15px; transition: transform .25s cubic-bezier(.2,.8,.2,1); animation: aurora-in .6s cubic-bezier(.2,.8,.2,1) both; }
+  .aurora .gear:hover { transform: rotate(45deg) scale(1.06); }
+  .aurora .mode { left: 56px; top: 14px; animation: aurora-in .6s .05s cubic-bezier(.2,.8,.2,1) both; transition: all .2s; }
+  .aurora .mode:hover { background: rgba(255,255,255,.12); }
+  .aurora .filters { left: 14px; top: 56px; flex-direction: column; align-items: stretch; gap: 8px; width: 172px; padding: 12px; border-radius: 16px; animation: aurora-in .6s .1s cubic-bezier(.2,.8,.2,1) both; }
+  .aurora .filters .f-title { font-size: 9px; color: #94a3b8; font-weight: 500; letter-spacing: .12em; text-transform: uppercase; }
+  .aurora .f-row { display: flex; flex-wrap: wrap; gap: 5px; }
+  .aurora .f-row span { font-size: 9px; padding: 3px 9px; border-radius: 999px; background: rgba(255,255,255,.05); color: #cbd5e1; transition: all .2s; }
+  .aurora .f-row span.on { background: linear-gradient(135deg, rgba(99,102,241,.35), rgba(34,211,238,.3)); color: #e0e7ff; }
+  .aurora .f-row span:hover { transform: translateY(-1px) scale(1.04); }
+  .aurora .search { left: 14px; top: 208px; width: 172px; border-radius: 999px; color: #64748b; animation: aurora-in .6s .15s cubic-bezier(.2,.8,.2,1) both; }
+  .aurora .panel-r { right: 14px; top: 14px; width: 190px; flex-direction: column; align-items: stretch; gap: 6px; border-radius: 16px; padding: 13px; animation: aurora-in .6s .18s cubic-bezier(.2,.8,.2,1) both; }
+  .aurora .panel-r .p-name { font-size: 12px; font-weight: 600; color: #f8fafc; }
+  .aurora .panel-r .p-row { display: flex; justify-content: space-between; font-size: 10px; color: #94a3b8; }
+  .aurora .panel-r .p-row b { color: #e2e8f0; font-weight: 500; }
+  .aurora .pulse-dot { background: #34d399; animation: aurora-pulse 1.6s ease-in-out infinite; }
+  @keyframes aurora-pulse { 0%,100% { transform: scale(1); box-shadow: 0 0 0 0 rgba(52,211,153,.5); } 50% { transform: scale(1.35); box-shadow: 0 0 0 7px rgba(52,211,153,0); } }
+  .aurora .obs { left: 50%; bottom: 14px; transform: translateX(-50%); animation: aurora-in .6s .22s cubic-bezier(.2,.8,.2,1) both; }
+  @keyframes aurora-in { from { opacity: 0; transform: translateY(14px) scale(.96); } to { opacity: 1; transform: none; } }
+  .aurora .sats i { position: absolute; width: 3px; height: 3px; border-radius: 50%; background: #a5b4fc; }
+
+  /* ================= D: NEON GRID (cyberpunk, bottom dock) ================= */
+  .neon .mini-map { background: #030308; }
+  .neon .mini-map::before { content:""; position: absolute; inset: 0; background: linear-gradient(rgba(34,211,238,.05) 1px, transparent 1px), linear-gradient(90deg, rgba(34,211,238,.05) 1px, transparent 1px); background-size: 22px 22px; }
+  .neon .globe-hint { width: 220px; height: 220px; border: 1px solid rgba(34,211,238,.35); background: radial-gradient(circle at 42% 34%, #0e3a46 0%, #051a22 55%, #02090d 100%); box-shadow: 0 0 40px rgba(34,211,238,.15), inset 0 0 50px rgba(0,0,0,.85); clip-path: polygon(8% 0, 92% 0, 100% 8%, 100% 92%, 92% 100%, 8% 100%, 0 92%, 0 8%); }
+  .neon .ui-chip { background: rgba(5,10,14,.9); border: 1px solid rgba(34,211,238,.55); color: #67e8f9; border-radius: 0; padding: 7px 12px; font-size: 10px; box-shadow: 0 0 14px rgba(34,211,238,.12), inset 0 0 10px rgba(34,211,238,.05); clip-path: polygon(10px 0, 100% 0, 100% calc(100% - 10px), calc(100% - 10px) 100%, 0 100%, 0 10px); }
+  .neon .dock { left: 50%; bottom: 14px; transform: translateX(-50%); gap: 8px; padding: 7px 10px; animation: dock-up .5s cubic-bezier(.2,.8,.2,1) both; }
+  .neon .dock .d-item { padding: 5px 10px; border-right: 1px solid rgba(34,211,238,.25); font-size: 9px; color: #a5f3fc; font-family: ui-monospace, monospace; }
+  .neon .dock .d-item:last-child { border-right: none; }
+  .neon .dock .d-item.on { color: #22d3ee; text-shadow: 0 0 8px rgba(34,211,238,.8); }
+  .neon .search { left: 50%; bottom: 58px; transform: translateX(-50%); width: 240px; color: #67e8f9; font-family: ui-monospace, monospace; animation: dock-up .5s .08s cubic-bezier(.2,.8,.2,1) both; }
+  .neon .search::after { content:"▌"; animation: blink 1s steps(1) infinite; }
+  .neon .panel-r { right: 14px; top: 40px; width: 176px; flex-direction: column; align-items: stretch; gap: 5px; border-left: 2px solid #22d3ee; padding: 10px 12px; animation: neon-in .45s .12s cubic-bezier(.2,.8,.2,1) both; }
+  .neon .panel-r .p-name { font-size: 11px; color: #67e8f9; text-transform: uppercase; letter-spacing: .12em; }
+  .neon .panel-r .p-row { display: flex; justify-content: space-between; font-size: 9px; color: #67e8f9; font-family: ui-monospace, monospace; }
+  .neon .panel-r .p-row b { color: #f0fdff; }
+  .neon .pulse-dot { background: #f0abfc; box-shadow: 0 0 10px #f0abfc; animation: blink 1.4s steps(1) infinite; }
+  .neon .obs { right: 14px; top: 14px; width: 34px; height: 34px; justify-content: center; font-size: 14px; border-color: rgba(240,171,252,.6); color: #f0abfc; animation: neon-in .45s .16s cubic-bezier(.2,.8,.2,1) both; }
+  @keyframes dock-up { from { opacity: 0; transform: translateX(-50%) translateY(16px); } to { opacity: 1; transform: translateX(-50%) translateY(0); } }
+  @keyframes neon-in { from { opacity: 0; transform: translateX(12px); } to { opacity: 1; transform: none; } }
+  .neon .sats i { position: absolute; width: 3px; height: 3px; background: #22d3ee; box-shadow: 0 0 6px rgba(34,211,238,.9); animation: twinkle2 2s ease-in-out infinite; }
+  @keyframes twinkle2 { 0%,100% { opacity: .3; } 50% { opacity: 1; } }
+
+  /* ================= E: LIGHT ORBIT (light theme, top bar) ================= */
+  .light .mini-map { background: linear-gradient(180deg, #dfe9f5 0%, #cfe0ef 55%, #c3d6e8 100%); }
+  .light .globe-hint { width: 250px; height: 250px; background: radial-gradient(circle at 38% 32%, #7fb3e8 0%, #4a7fc0 30%, #2f5d99 60%, #1d3f6d 100%); box-shadow: inset -30px -20px 80px rgba(10,30,60,.5), 0 10px 40px rgba(30,60,100,.25); }
+  .light .ui-chip { background: rgba(255,255,255,.92); border: 1px solid rgba(30,60,100,.08); border-radius: 12px; color: #1e293b; padding: 8px 13px; font-size: 10px; box-shadow: 0 4px 16px rgba(30,60,100,.12); }
+  .light .gear { left: 14px; top: 14px; width: 34px; height: 34px; justify-content: center; font-size: 15px; animation: light-in .5s cubic-bezier(.2,.8,.2,1) both; }
+  .light .mode { left: 56px; top: 14px; animation: light-in .5s .05s cubic-bezier(.2,.8,.2,1) both; }
+  .light .mode:hover { transform: translateY(-1px); box-shadow: 0 8px 20px rgba(30,60,100,.18); }
+  .light .search { left: 14px; top: 58px; width: 190px; color: #64748b; animation: light-in .5s .1s cubic-bezier(.2,.8,.2,1) both; }
+  .light .filters { left: 14px; top: 102px; flex-direction: column; align-items: stretch; gap: 6px; width: 190px; padding: 11px; animation: light-in .5s .14s cubic-bezier(.2,.8,.2,1) both; }
+  .light .filters .f-title { font-size: 9px; color: #64748b; font-weight: 600; text-transform: uppercase; letter-spacing: .1em; }
+  .light .f-row { display: flex; flex-wrap: wrap; gap: 5px; }
+  .light .f-row span { font-size: 9px; padding: 3px 9px; border-radius: 999px; background: #eef2f7; color: #475569; border: 1px solid rgba(30,60,100,.06); }
+  .light .f-row span.on { background: #2563eb; color: #fff; }
+  .light .panel-r { right: 14px; top: 14px; width: 184px; flex-direction: column; align-items: stretch; gap: 6px; padding: 13px; animation: light-in .5s .18s cubic-bezier(.2,.8,.2,1) both; }
+  .light .panel-r .p-name { font-size: 12px; font-weight: 700; color: #0f172a; }
+  .light .panel-r .p-row { display: flex; justify-content: space-between; font-size: 10px; color: #64748b; }
+  .light .panel-r .p-row b { color: #0f172a; font-weight: 600; }
+  .light .pulse-dot { background: #16a34a; animation: light-pulse 1.6s ease-in-out infinite; }
+  @keyframes light-pulse { 0%,100% { box-shadow: 0 0 0 0 rgba(22,163,74,.4); } 50% { box-shadow: 0 0 0 6px rgba(22,163,74,0); } }
+  .light .obs { left: 50%; bottom: 14px; transform: translateX(-50%); animation: light-in .5s .22s cubic-bezier(.2,.8,.2,1) both; }
+  @keyframes light-in { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
+  .light .sats i { position: absolute; width: 3px; height: 3px; border-radius: 50%; background: #0f172a; opacity: .55; }
+
+  /* ================= F: DOCK (floating bottom dock, iOS-like) ================= */
+  .dockui .mini-map { background: radial-gradient(130% 90% at 50% 20%, #131926 0%, #0a0e16 55%, #05070c 100%); }
+  .dockui .globe-hint { width: 250px; height: 250px; background: radial-gradient(circle at 40% 33%, #24406e 0%, #12213f 40%, #081020 70%, #03060e 100%); box-shadow: inset -30px -22px 70px rgba(0,0,0,.8), 0 0 60px rgba(56,130,246,.12); }
+  .dockui .ui-chip { background: rgba(30, 36, 48, .75); border: 1px solid rgba(148,163,184,.14); border-radius: 999px; color: #dbe4f0; font-size: 10px; padding: 7px 12px; backdrop-filter: blur(18px); -webkit-backdrop-filter: blur(18px); box-shadow: 0 6px 20px rgba(0,0,0,.35); }
+  .dockui .dock { left: 50%; bottom: 14px; transform: translateX(-50%); gap: 6px; padding: 8px 12px; border-radius: 999px; animation: dockui-in .55s cubic-bezier(.2,.8,.2,1) both; }
+  .dockui .dock .d-item { display: flex; align-items: center; justify-content: center; width: 34px; height: 34px; border-radius: 999px; background: rgba(255,255,255,.06); transition: all .25s cubic-bezier(.2,.8,.2,1); }
+  .dockui .dock .d-item:hover { transform: translateY(-6px) scale(1.12); background: rgba(255,255,255,.14); }
+  .dockui .dock .d-item.searchw { width: 150px; justify-content: flex-start; padding: 0 14px; color: #64748b; font-size: 10px; }
+  .dockui .dock .d-item.on { background: #3b82f6; color: #fff; box-shadow: 0 0 16px rgba(59,130,246,.5); }
+  .dockui .panel-r { right: 14px; top: 14px; width: 190px; flex-direction: column; align-items: stretch; gap: 6px; border-radius: 18px; padding: 14px; animation: dockui-in .55s .1s cubic-bezier(.2,.8,.2,1) both; }
+  .dockui .panel-r .p-name { font-size: 12px; font-weight: 600; color: #f1f5f9; }
+  .dockui .panel-r .p-row { display: flex; justify-content: space-between; font-size: 10px; color: #94a3b8; }
+  .dockui .panel-r .p-row b { color: #e2e8f0; }
+  .dockui .pulse-dot { background: #34d399; animation: dockui-pulse 1.8s ease-in-out infinite; }
+  @keyframes dockui-pulse { 0%,100% { transform: scale(1); } 50% { transform: scale(1.3); } }
+  .dockui .obs { left: 14px; top: 14px; color: #94a3b8; animation: dockui-in .55s .16s cubic-bezier(.2,.8,.2,1) both; }
+  @keyframes dockui-in { from { opacity: 0; transform: translateX(-50%) translateY(18px); } to { opacity: 1; transform: translateX(-50%) translateY(0); } }
+  .dockui .sats i { position: absolute; width: 3px; height: 3px; border-radius: 50%; background: #93c5fd; opacity: .7; }
+
+  /* ================= G: RAIL (vertical icon rail, drawers) ================= */
+  .rail .mini-map { background: linear-gradient(150deg, #10131c 0%, #0a0c12 60%, #07080d 100%); }
+  .rail .globe-hint { width: 230px; height: 230px; background: radial-gradient(circle at 38% 32%, #312e81 0%, #1e1b4b 40%, #0d0b26 65%, #050410 100%); box-shadow: inset -25px -20px 70px rgba(0,0,0,.8), 0 0 80px rgba(99,102,241,.15); }
+  .rail .railbar { left: 14px; top: 50%; transform: translateY(-50%); flex-direction: column; gap: 8px; padding: 8px; border-radius: 14px; animation: rail-in .5s cubic-bezier(.2,.8,.2,1) both; }
+  .rail .railbar .r-item { display: flex; align-items: center; justify-content: center; width: 34px; height: 34px; border-radius: 10px; color: #a5b4fc; font-size: 13px; transition: all .2s; }
+  .rail .railbar .r-item:hover { background: rgba(129,140,248,.18); color: #e0e7ff; transform: scale(1.08); }
+  .rail .railbar .r-item.on { background: linear-gradient(135deg, #6366f1, #8b5cf6); color: #fff; box-shadow: 0 4px 14px rgba(99,102,241,.4); }
+  .rail .drawer { left: 58px; top: 50%; transform: translateY(-50%); flex-direction: column; align-items: stretch; gap: 7px; width: 150px; padding: 12px; border-radius: 14px; animation: drawer-in .45s .1s cubic-bezier(.2,.8,.2,1) both; }
+  .rail .drawer .f-title { font-size: 9px; color: #818cf8; font-weight: 600; text-transform: uppercase; letter-spacing: .1em; }
+  .rail .drawer .f-row { display: flex; flex-wrap: wrap; gap: 4px; }
+  .rail .drawer .f-row span { font-size: 8.5px; padding: 3px 7px; border-radius: 6px; background: rgba(129,140,248,.08); color: #c7d2fe; }
+  .rail .drawer .f-row span.on { background: rgba(129,140,248,.25); color: #e0e7ff; }
+  .rail .drawer .search { color: #6b7280; font-size: 9px; }
+  .rail .panel-r { right: 0; top: 0; bottom: 0; width: 172px; flex-direction: column; align-items: stretch; gap: 6px; border-radius: 0; padding: 14px; background: rgba(10,12,20,.85); border-left: 1px solid rgba(129,140,248,.15); animation: right-in .45s .14s cubic-bezier(.2,.8,.2,1) both; }
+  .rail .panel-r .p-name { font-size: 12px; font-weight: 600; color: #eef2ff; }
+  .rail .panel-r .p-row { display: flex; justify-content: space-between; font-size: 9.5px; color: #818cf8; }
+  .rail .panel-r .p-row b { color: #c7d2fe; }
+  .rail .pulse-dot { background: #a78bfa; animation: rail-pulse 1.5s ease-in-out infinite; }
+  @keyframes rail-pulse { 0%,100% { opacity: 1; } 50% { opacity: .35; } }
+  .rail .obs { left: 14px; top: 14px; color: #6b7280; font-size: 9px; animation: rail-in .5s .18s cubic-bezier(.2,.8,.2,1) both; }
+  @keyframes rail-in { from { opacity: 0; transform: translateY(-50%) translateX(-12px); } to { opacity: 1; transform: translateY(-50%) translateX(0); } }
+  @keyframes drawer-in { from { opacity: 0; transform: translateY(-50%) translateX(-10px); } to { opacity: 1; transform: translateY(-50%) translateX(0); } }
+  @keyframes right-in { from { opacity: 0; transform: translateX(14px); } to { opacity: 1; transform: none; } }
+  .rail .sats i { position: absolute; width: 3px; height: 3px; border-radius: 50%; background: #a5b4fc; }
+
+  /* ================= H: TERMINAL (brutalist monochrome) ================= */
+  .term .mini-map { background: #0a0a0a; }
+  .term .mini-map::before { content:""; position: absolute; inset: 0; background: radial-gradient(circle at 50% 45%, rgba(255,255,255,.06) 0%, transparent 55%); }
+  .term .globe-hint { width: 210px; height: 210px; border: 1px solid rgba(255,255,255,.3); background: transparent; }
+  .term .globe-hint::after { content:""; position: absolute; inset: 8px; border: 1px solid rgba(255,255,255,.12); border-radius: 50%; }
+  .term .ui-chip { background: #0a0a0a; border: 1px solid rgba(255,255,255,.75); color: #fafafa; border-radius: 0; padding: 6px 10px; font-family: ui-monospace, Menlo, monospace; font-size: 9px; text-transform: uppercase; letter-spacing: .06em; }
+  .term .gear { left: 14px; top: 14px; animation: term-in .2s steps(2) both; }
+  .term .mode { left: 96px; top: 14px; animation: term-in .2s .05s steps(2) both; }
+  .term .filters { left: 14px; top: 54px; flex-direction: column; align-items: stretch; gap: 5px; width: 180px; padding: 9px; animation: term-in .2s .1s steps(2) both; }
+  .term .filters .f-title { font-size: 8px; color: #9a9a9a; letter-spacing: .14em; }
+  .term .f-title::before { content:"> "; color: #fafafa; }
+  .term .f-row { display: flex; flex-wrap: wrap; gap: 4px; }
+  .term .f-row span { font-size: 8px; font-family: ui-monospace, monospace; padding: 2px 7px; border: 1px solid rgba(255,255,255,.4); color: #d4d4d4; }
+  .term .f-row span.on { background: #fafafa; color: #0a0a0a; font-weight: 700; }
+  .term .f-row span:hover { background: #fff; color: #000; }
+  .term .search { left: 14px; top: 194px; width: 180px; color: #9a9a9a; border-style: dashed; animation: term-in .2s .14s steps(2) both; }
+  .term .search::before { content:"$ "; color: #fafafa; }
+  .term .panel-r { right: 14px; top: 14px; width: 178px; flex-direction: column; align-items: stretch; gap: 4px; animation: term-in .2s .18s steps(2) both; }
+  .term .panel-r .p-name { font-size: 10px; color: #fafafa; letter-spacing: .1em; border-bottom: 1px solid rgba(255,255,255,.5); padding-bottom: 4px; }
+  .term .panel-r .p-row { display: flex; justify-content: space-between; font-size: 8.5px; font-family: ui-monospace, monospace; color: #9a9a9a; }
+  .term .panel-r .p-row b { color: #fafafa; }
+  .term .pulse-dot { background: #fafafa; animation: term-blink 1s steps(1) infinite; }
+  @keyframes term-blink { 50% { opacity: 0; } }
+  .term .obs { left: 50%; bottom: 14px; transform: translateX(-50%); animation: term-in .2s .22s steps(2) both; }
+  @keyframes term-in { from { opacity: 0; transform: translateX(-4px); } to { opacity: 1; transform: none; } }
+  .term .sats i { position: absolute; width: 2px; height: 2px; background: #fafafa; animation: term-blink 1.4s steps(1) infinite; }
+</style>
+
+<div class="cards">
+  <!-- C: AURORA -->
+  <div class="card" data-choice="c" onclick="toggleSelect(this)">
+    <div class="card-image">
+      <div class="mock aurora">
+        <div class="mini-map"></div>
+        <div class="aurora-glow"></div>
+        <div class="globe-hint"></div>
+        <div class="sats"><i style="left:34%;top:26%"></i><i style="left:58%;top:16%"></i><i style="left:72%;top:40%"></i><i style="left:36%;top:64%"></i><i style="left:60%;top:60%"></i></div>
+        <div class="ui-chip gear">⚙</div>
+        <div class="ui-chip mode">2D / 3D</div>
+        <div class="ui-chip filters">
+          <div class="f-title">Regime</div>
+          <div class="f-row"><span class="on">LEO</span><span class="on">MEO</span><span class="on">GEO</span></div>
+          <div class="f-title">Constellation</div>
+          <div class="f-row"><span class="on">Starlink</span><span>OneWeb</span><span class="on">GPS</span></div>
+        </div>
+        <div class="ui-chip search">⌕ Search satellites…</div>
+        <div class="ui-chip panel-r">
+          <div class="p-name">ISS (ZARYA)</div>
+          <div class="p-row"><span>NORAD id</span><b>25544</b></div>
+          <div class="p-row"><span>Altitude</span><b>420 km</b></div>
+          <div class="p-row"><span>Speed</span><b>7.66 km/s</b></div>
+        </div>
+        <div class="ui-chip obs"><span class="pulse-dot"></span> 48.86, 2.35 · Live</div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>C — Aurora</h3>
+      <p>Minimal dark, pill shapes, soft aurora glow, floating panels top-left + top-right.</p>
+    </div>
+  </div>
+
+  <!-- B: MISSION CONTROL -->
+  <div class="card" data-choice="b" onclick="toggleSelect(this)">
+    <div class="card-image">
+      <div class="mock hud">
+        <div class="mini-map"></div>
+        <div class="globe-hint"></div>
+        <div class="sats"><i style="left:40%;top:30%"></i><i style="left:62%;top:22%"></i><i style="left:74%;top:45%"></i><i style="left:30%;top:58%"></i><i style="left:52%;top:52%"></i></div>
+        <div class="ui-chip gear">⚙</div>
+        <div class="ui-chip mode">2D/3D</div>
+        <div class="ui-chip filters">
+          <div class="f-title">REGIME // ACTIVE</div>
+          <div class="f-row"><span class="on">LEO</span><span class="on">MEO</span><span class="on">GEO</span></div>
+          <div class="f-title">CONSTELLATION</div>
+          <div class="f-row"><span class="on">STARLINK</span><span>ONEWEB</span><span class="on">GPS</span></div>
+        </div>
+        <div class="ui-chip search">⌕ SEARCH CATALOG…</div>
+        <div class="ui-chip panel-r">
+          <div class="p-name">ISS (ZARYA)</div>
+          <div class="p-row"><span>NORAD</span><b>25544</b></div>
+          <div class="p-row"><span>ALT</span><b>420 KM</b></div>
+          <div class="p-row"><span>VEL</span><b>7.66 KM/S</b></div>
+        </div>
+        <div class="ui-chip obs"><span class="pulse-dot"></span> 48.86, 2.35 // LIVE</div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>B — Mission Control</h3>
+      <p>Aerospace HUD: monospace telemetry, blinking LEDs, dashed orbit rings, floating panels.</p>
+    </div>
+  </div>
+
+  <!-- D: NEON GRID -->
+  <div class="card" data-choice="d" onclick="toggleSelect(this)">
+    <div class="card-image">
+      <div class="mock neon">
+        <div class="mini-map"></div>
+        <div class="globe-hint"></div>
+        <div class="sats"><i style="left:33%;top:24%"></i><i style="left:56%;top:18%"></i><i style="left:71%;top:42%"></i><i style="left:37%;top:62%"></i><i style="left:63%;top:57%"></i></div>
+        <div class="ui-chip obs">◉</div>
+        <div class="ui-chip panel-r">
+          <div class="p-name">ISS (ZARYA)</div>
+          <div class="p-row"><span>NORAD</span><b>25544</b></div>
+          <div class="p-row"><span>ALT</span><b>420 km</b></div>
+          <div class="p-row"><span>VEL</span><b>7.66 km/s</b></div>
+        </div>
+        <div class="ui-chip search">⌕ find satellite…</div>
+        <div class="ui-chip dock">
+          <span class="d-item">⚙</span>
+          <span class="d-item">2D/3D</span>
+          <span class="d-item on">LEO</span>
+          <span class="d-item on">MEO</span>
+          <span class="d-item on">GEO</span>
+          <span class="d-item">S×</span>
+        </div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>D — Neon Grid</h3>
+      <p>Cyberpunk: grid backdrop, clipped-corner panels, glowing cyan dock anchored bottom-center.</p>
+    </div>
+  </div>
+
+  <!-- E: LIGHT ORBIT -->
+  <div class="card" data-choice="e" onclick="toggleSelect(this)">
+    <div class="card-image">
+      <div class="mock light">
+        <div class="mini-map"></div>
+        <div class="globe-hint"></div>
+        <div class="sats"><i style="left:32%;top:27%"></i><i style="left:57%;top:17%"></i><i style="left:70%;top:41%"></i><i style="left:38%;top:63%"></i><i style="left:61%;top:59%"></i></div>
+        <div class="ui-chip gear">⚙</div>
+        <div class="ui-chip mode">2D / 3D</div>
+        <div class="ui-chip search">⌕ Search satellites…</div>
+        <div class="ui-chip filters">
+          <div class="f-title">Regime</div>
+          <div class="f-row"><span class="on">LEO</span><span class="on">MEO</span><span class="on">GEO</span></div>
+          <div class="f-title">Constellation</div>
+          <div class="f-row"><span class="on">Starlink</span><span>OneWeb</span><span class="on">GPS</span></div>
+        </div>
+        <div class="ui-chip panel-r">
+          <div class="p-name">ISS (ZARYA)</div>
+          <div class="p-row"><span>NORAD id</span><b>25544</b></div>
+          <div class="p-row"><span>Altitude</span><b>420 km</b></div>
+          <div class="p-row"><span>Speed</span><b>7.66 km/s</b></div>
+        </div>
+        <div class="ui-chip obs"><span class="pulse-dot"></span> 48.86, 2.35 · Live</div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>E — Light Orbit</h3>
+      <p>Clean light theme, white cards, blue accent — fresh daylight alternative to the dark UIs.</p>
+    </div>
+  </div>
+
+  <!-- F: DOCK -->
+  <div class="card" data-choice="f" onclick="toggleSelect(this)">
+    <div class="card-image">
+      <div class="mock dockui">
+        <div class="mini-map"></div>
+        <div class="globe-hint"></div>
+        <div class="sats"><i style="left:34%;top:26%"></i><i style="left:58%;top:16%"></i><i style="left:72%;top:40%"></i><i style="left:36%;top:64%"></i><i style="left:60%;top:60%"></i></div>
+        <div class="ui-chip obs">⌖ 48.86, 2.35</div>
+        <div class="ui-chip panel-r">
+          <div class="p-name">ISS (ZARYA)</div>
+          <div class="p-row"><span>NORAD id</span><b>25544</b></div>
+          <div class="p-row"><span>Altitude</span><b>420 km</b></div>
+          <div class="p-row"><span>Speed</span><b>7.66 km/s</b></div>
+        </div>
+        <div class="ui-chip dock">
+          <span class="d-item">⚙</span>
+          <span class="d-item">⇄</span>
+          <span class="d-item">☀</span>
+          <span class="d-item on">⌕</span>
+          <span class="d-item searchw">Search…</span>
+        </div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>F — Dock</h3>
+      <p>iOS-style floating dock bottom-center, heavy blur, springy icons, minimal clutter.</p>
+    </div>
+  </div>
+
+  <!-- G: RAIL -->
+  <div class="card" data-choice="g" onclick="toggleSelect(this)">
+    <div class="card-image">
+      <div class="mock rail">
+        <div class="mini-map"></div>
+        <div class="globe-hint"></div>
+        <div class="sats"><i style="left:33%;top:25%"></i><i style="left:58%;top:17%"></i><i style="left:71%;top:42%"></i><i style="left:37%;top:62%"></i><i style="left:62%;top:57%"></i></div>
+        <div class="ui-chip obs">OBS 48.86, 2.35</div>
+        <div class="ui-chip railbar">
+          <span class="r-item on">⚙</span>
+          <span class="r-item">⇄</span>
+          <span class="r-item">☀</span>
+          <span class="r-item">⌕</span>
+          <span class="r-item">ⓘ</span>
+        </div>
+        <div class="ui-chip drawer">
+          <div class="f-title">Regime</div>
+          <div class="f-row"><span class="on">LEO</span><span class="on">MEO</span><span class="on">GEO</span></div>
+          <div class="f-title">Constellation</div>
+          <div class="f-row"><span class="on">Starlink</span><span>OneWeb</span><span class="on">GPS</span></div>
+          <div class="search">⌕ Search…</div>
+        </div>
+        <div class="ui-chip panel-r">
+          <div class="p-name">ISS (ZARYA)</div>
+          <div class="p-row"><span>NORAD</span><b>25544</b></div>
+          <div class="p-row"><span>ALT</span><b>420 km</b></div>
+          <div class="p-row"><span>VEL</span><b>7.66 km/s</b></div>
+          <div class="p-row"><span>VISIBLE</span><b>YES</b></div>
+        </div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>G — Rail</h3>
+      <p>Vertical icon rail mid-left with slide-out drawer; full-height details drawer on the right.</p>
+    </div>
+  </div>
+
+  <!-- H: TERMINAL -->
+  <div class="card" data-choice="h" onclick="toggleSelect(this)">
+    <div class="card-image">
+      <div class="mock term">
+        <div class="mini-map"></div>
+        <div class="globe-hint"></div>
+        <div class="sats"><i style="left:40%;top:28%"></i><i style="left:60%;top:20%"></i><i style="left:73%;top:44%"></i><i style="left:32%;top:60%"></i><i style="left:54%;top:54%"></i></div>
+        <div class="ui-chip gear">⚙</div>
+        <div class="ui-chip mode">2D/3D</div>
+        <div class="ui-chip filters">
+          <div class="f-title">REGIME</div>
+          <div class="f-row"><span class="on">LEO</span><span class="on">MEO</span><span class="on">GEO</span></div>
+          <div class="f-title">CONSTELLATION</div>
+          <div class="f-row"><span class="on">STARLINK</span><span>ONEWEB</span><span class="on">GPS</span></div>
+        </div>
+        <div class="ui-chip search">search…</div>
+        <div class="ui-chip panel-r">
+          <div class="p-name">ISS (ZARYA)</div>
+          <div class="p-row"><span>NORAD</span><b>25544</b></div>
+          <div class="p-row"><span>ALT</span><b>420 KM</b></div>
+          <div class="p-row"><span>VEL</span><b>7.66 KM/S</b></div>
+          <div class="p-row"><span>STATUS</span><b>TRACKING</b></div>
+        </div>
+        <div class="ui-chip obs"><span class="pulse-dot"></span> 48.86, 2.35 // LIVE</div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>H — Terminal</h3>
+      <p>Brutalist monochrome: sharp corners, monospace, high contrast, zero decoration.</p>
+    </div>
+  </div>
+</div>
