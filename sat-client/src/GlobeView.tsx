@@ -23,18 +23,19 @@ const MAX_DOT_SIZE = 0.09;
 const SIZE_CURVE = 0.35;
 
 // Trajectory: a fat Line2 circling the globe just above the surface. A per-vertex color gradient
-// (sharp white-hot head fading to a dim green tail) loops around the ring every frame to show
-// direction of travel; Line2 renders with depth testing so the far side is occluded by the globe.
+// (sharp white-hot head fading to a dim violet tail) loops around the ring every frame to show
+// direction of travel; violet keeps the orbit distinct from the mint-green selection marker.
+// Line2 renders with depth testing so the far side is occluded by the globe.
 const ORBIT_ALTITUDE = 0.07;
-const ORBIT_LINE_WIDTH = 6;
+const ORBIT_LINE_WIDTH = 4;
 const ORBIT_PHASE_STEP = 0.02;
 
-// Selected-satellite highlight: pulsing green dot (#22ff88) plus a soft radial-gradient halo sprite
-// that breathes with the same ~3.8s phase so the selection reads as a strong pulsing blob. The dot
-// is pixel-sized (sizeAttenuation: false) so it is the same size on screen at every zoom.
-const HIGHLIGHT_RGB: [number, number, number] = [0.13, 1, 0.53];
+// Selected-satellite highlight: a pulsing mint-green dot plus a soft radial-gradient halo sprite
+// that breathes with the same ~3.8s phase. Both are round radial-gradient sprites (never the
+// square quads THREE.Points renders) and are sized in *screen pixels* via the camera projection,
+// so the selection reads as a scaled-up version of itself at any zoom instead of a broken box.
 const HIGHLIGHT_PIXEL_SIZE = 14;
-const GLOW_FACTOR = 7;
+const GLOW_PIXEL_SIZE = 44;
 const GLOW_TEX_SIZE = 128;
 const PULSE_AMPLITUDE = 0.55;
 const PULSE_PERIOD_MS = 600; // ~3.8s pulse
@@ -68,8 +69,8 @@ export function orbitGradientColors(vertexCount: number, phase: number): Float32
   const colors = new Float32Array(vertexCount * 3);
   const SIGMA = 0.04; // head width as a fraction of the ring (~12% of the ring is hot)
   const HEAD: [number, number, number] = [255, 255, 255];      // white-hot head
-  const TAIL: [number, number, number] = [46, 232, 138];       // green base (#2ee88a)
-  const TAIL_BRIGHTNESS = 0.2;                                 // tail clearly dimmer
+  const TAIL: [number, number, number] = [168, 85, 247];      // violet base (#a855f7)
+  const TAIL_BRIGHTNESS = 0.35;                                // tail clearly dimmer
   for (let i = 0; i < vertexCount; i++) {
     let d = (i / vertexCount - phase) % 1;
     if (d < 0) d += 1;
@@ -157,7 +158,7 @@ export default function GlobeView({ positions, satNames, selectedOrbit, selected
   const containerRef = useRef<HTMLDivElement>(null);
   const globeRef = useRef<InstanceType<typeof Globe> | null>(null);
   const baseRef = useRef<THREE.Points | null>(null);
-  const highlightRef = useRef<THREE.Points | null>(null);
+  const highlightDotRef = useRef<THREE.Sprite | null>(null);
   const orbitLineRef = useRef<Line2 | null>(null);
   const glowSpriteRef = useRef<THREE.Sprite | null>(null);
   const orbitPointCountRef = useRef(0);
@@ -214,17 +215,11 @@ export default function GlobeView({ positions, satNames, selectedOrbit, selected
       .labelAltitude((d) => altR((d as SatDot).altKm) + 0.03)
       .labelResolution(2);
 
-    // All satellites render as one THREE.Points layer (single draw call) plus a 1-point highlight
-    // layer. The highlight is a pixel-constant dot (sizeAttenuation: false) so the selection keeps
-    // its 14px screen size at every zoom instead of shrinking with the globe.
+    // All satellites render as one THREE.Points layer (single draw call); the selection is a pair
+    // of round radial-gradient sprites (dot + halo) that never look like the square quads
+    // THREE.Points renders, sized in screen pixels so the selection reads the same at every zoom.
     const basePoints = buildPoints(positions.length, BASE_SIZE);
-    const highlightPoints = buildPoints(1, HIGHLIGHT_PIXEL_SIZE, false);
-    highlightPoints.visible = false;
-    const hc = highlightPoints.geometry.attributes.color as THREE.BufferAttribute;
-    hc.setXYZ(0, HIGHLIGHT_RGB[0], HIGHLIGHT_RGB[1], HIGHLIGHT_RGB[2]);
-    hc.needsUpdate = true;
     baseRef.current = basePoints;
-    highlightRef.current = highlightPoints;
 
     // Trajectory: a fat gradient line looping the globe. Positions are written when an orbit is
     // selected; the rAF loop advances the color peak so the gradient flows along the orbit.
@@ -235,43 +230,64 @@ export default function GlobeView({ positions, satNames, selectedOrbit, selected
     orbitLine.visible = false;
     orbitLineRef.current = orbitLine;
 
-    // Soft green halo behind the selected dot: radial gradient texture on a sprite (fades to
-    // transparent at the edge; depthWrite off so it never punches holes in the globe).
-    const glowCanvas = document.createElement("canvas");
-    glowCanvas.width = GLOW_TEX_SIZE;
-    glowCanvas.height = GLOW_TEX_SIZE;
-    const gctx = glowCanvas.getContext("2d");
-    if (gctx) {
-      const grad = gctx.createRadialGradient(
-        GLOW_TEX_SIZE / 2,
-        GLOW_TEX_SIZE / 2,
-        0,
-        GLOW_TEX_SIZE / 2,
-        GLOW_TEX_SIZE / 2,
-        GLOW_TEX_SIZE / 2
-      );
-      grad.addColorStop(0, "rgba(34, 255, 136, 0.9)");
-      grad.addColorStop(0.4, "rgba(34, 255, 136, 0.35)");
-      grad.addColorStop(1, "rgba(34, 255, 136, 0)");
-      gctx.fillStyle = grad;
-      gctx.fillRect(0, 0, GLOW_TEX_SIZE, GLOW_TEX_SIZE);
-    }
-    const glowTexture = new THREE.CanvasTexture(glowCanvas);
-    const glowMaterial = new THREE.SpriteMaterial({
-      map: glowTexture,
-      transparent: true,
-      depthWrite: false,
-      opacity: 0.9,
-    });
-    const glowSprite = new THREE.Sprite(glowMaterial);
+    // Radial-gradient texture helper shared by the selection dot and its halo: both fade to
+    // transparent at the edge so they render as smooth circles (depthWrite off so they never
+    // punch holes in the globe).
+    const radialTexture = (stops: [number, string][]) => {
+      const canvas = document.createElement("canvas");
+      canvas.width = GLOW_TEX_SIZE;
+      canvas.height = GLOW_TEX_SIZE;
+      const ctx = canvas.getContext("2d");
+      if (ctx) {
+        const grad = ctx.createRadialGradient(
+          GLOW_TEX_SIZE / 2,
+          GLOW_TEX_SIZE / 2,
+          0,
+          GLOW_TEX_SIZE / 2,
+          GLOW_TEX_SIZE / 2,
+          GLOW_TEX_SIZE / 2
+        );
+        for (const [at, color] of stops) grad.addColorStop(at, color);
+        ctx.fillStyle = grad;
+        ctx.fillRect(0, 0, GLOW_TEX_SIZE, GLOW_TEX_SIZE);
+      }
+      return new THREE.CanvasTexture(canvas);
+    };
+    const spriteMaterial = (texture: THREE.Texture) =>
+      new THREE.SpriteMaterial({ map: texture, transparent: true, depthWrite: false });
+
+    // Mint dot: mostly-opaque core with a soft edge.
+    const highlightDot = new THREE.Sprite(
+      spriteMaterial(
+        radialTexture([
+          [0, "rgba(34, 255, 136, 1)"],
+          [0.3, "rgba(34, 255, 136, 0.9)"],
+          [0.75, "rgba(34, 255, 136, 0.25)"],
+          [1, "rgba(34, 255, 136, 0)"],
+        ])
+      )
+    );
+    highlightDot.visible = false;
+    highlightDotRef.current = highlightDot;
+
+    // Softer, wider halo behind the dot.
+    const glowSprite = new THREE.Sprite(
+      spriteMaterial(
+        radialTexture([
+          [0, "rgba(34, 255, 136, 0.9)"],
+          [0.4, "rgba(34, 255, 136, 0.35)"],
+          [1, "rgba(34, 255, 136, 0)"],
+        ])
+      )
+    );
     glowSprite.visible = false;
     glowSpriteRef.current = glowSprite;
 
-    globe.scene().add(basePoints, highlightPoints, orbitLine, glowSprite);
+    globe.scene().add(basePoints, highlightDot, glowSprite, orbitLine);
 
     // Recompute dot sizes when the OrbitControls camera moves: base size grows gently as the
-    // camera zooms in so dots stay readable, clamped to a sane floor/ceiling. The highlight is
-    // pixel-constant so only the world-unit glow halo tracks the dot size here.
+    // camera zooms in so dots stay readable, clamped to a sane floor/ceiling. The selection
+    // sprites are pixel-constant: their world scale is derived from the camera projection below.
     const controls = globe.controls();
     const refDist = globe.camera().position.distanceTo(controls.target);
     const applySize = () => {
@@ -279,10 +295,19 @@ export default function GlobeView({ positions, satNames, selectedOrbit, selected
       const size = dotSizeFor(dist, refDist, BASE_SIZE);
       dotSizeRef.current = size;
       (basePoints.material as THREE.PointsMaterial).size = size;
-      glowSprite.scale.set(size * GLOW_FACTOR, size * GLOW_FACTOR, 1);
     };
     applySize();
     controls.addEventListener("change", applySize);
+
+    // World scale for a sprite that must render at a fixed on-screen pixel size: derive the world
+    // height visible at the camera's distance, then take the pixel fraction of it.
+    const pxScale = (px: number) => {
+      const cam = globe.camera() as THREE.PerspectiveCamera;
+      const dist = cam.position.distanceTo(controls.target);
+      const worldHeightAtDist = 2 * Math.tan(((cam.fov ?? 60) * Math.PI) / 360) * dist;
+      const cssHeight = container.getBoundingClientRect().height || 1;
+      return (px / cssHeight) * worldHeightAtDist;
+    };
 
     // Picking: project every satellite's world coords to the container and take the nearest within a radius.
     const tmpVec = new THREE.Vector3();
@@ -396,20 +421,18 @@ export default function GlobeView({ positions, satNames, selectedOrbit, selected
         worldCoordsRef.current = lerpOutRef.current;
 
         const hi = highlightIdxRef.current;
-        const highlight = highlightRef.current;
-        if (hi >= 0 && highlight?.visible) {
-          const hp = highlight.geometry.attributes.position as THREE.BufferAttribute;
-          hp.setXYZ(0, lerpOutRef.current[hi * 3], lerpOutRef.current[hi * 3 + 1], lerpOutRef.current[hi * 3 + 2]);
-          hp.needsUpdate = true;
-          // pulsing pixel-constant dot size + glow halo track the (lerped) selected satellite; the
-          // halo breathes with the same phase so the selection reads as a strong pulsing blob
+        const dot = highlightDotRef.current;
+        if (hi >= 0 && dot?.visible) {
+          // pulsing pixel-constant dot + glow halo track the (lerped) selected satellite; both
+          // breathe with the same phase so the selection reads as a strong pulsing blob
           const pulse = Math.sin(now / PULSE_PERIOD_MS);
-          (highlight.material as THREE.PointsMaterial).size =
-            HIGHLIGHT_PIXEL_SIZE * (1 + PULSE_AMPLITUDE * pulse);
+          const dScale = pxScale(HIGHLIGHT_PIXEL_SIZE * (1 + PULSE_AMPLITUDE * pulse));
+          dot.position.set(lerpOutRef.current[hi * 3], lerpOutRef.current[hi * 3 + 1], lerpOutRef.current[hi * 3 + 2]);
+          dot.scale.set(dScale, dScale, 1);
           const glow = glowSpriteRef.current;
           if (glow) {
             glow.position.set(lerpOutRef.current[hi * 3], lerpOutRef.current[hi * 3 + 1], lerpOutRef.current[hi * 3 + 2]);
-            const gScale = dotSizeRef.current * GLOW_FACTOR * (GLOW_PULSE_MEAN + GLOW_PULSE_AMPLITUDE * pulse);
+            const gScale = pxScale(GLOW_PIXEL_SIZE * (GLOW_PULSE_MEAN + GLOW_PULSE_AMPLITUDE * pulse));
             glow.scale.set(gScale, gScale, 1);
           }
         }
@@ -439,20 +462,21 @@ export default function GlobeView({ positions, satNames, selectedOrbit, selected
       container.removeEventListener("pointermove", onPointerMove);
       container.removeEventListener("click", onClick);
       controls.removeEventListener("change", applySize);
-      globe.scene().remove(basePoints, highlightPoints, orbitLine, glowSprite);
+      globe.scene().remove(basePoints, highlightDot, glowSprite, orbitLine);
       basePoints.geometry.dispose();
       (basePoints.material as THREE.Material).dispose();
-      highlightPoints.geometry.dispose();
-      (highlightPoints.material as THREE.Material).dispose();
       orbitLine.geometry.dispose();
       orbitLine.material.dispose();
       glowSprite.geometry.dispose();
       glowSprite.material.dispose();
       (glowSprite.material as THREE.SpriteMaterial).map?.dispose();
+      highlightDot.geometry.dispose();
+      highlightDot.material.dispose();
+      (highlightDot.material as THREE.SpriteMaterial).map?.dispose();
       globe._destructor?.();
       globeRef.current = null;
       baseRef.current = null;
-      highlightRef.current = null;
+      highlightDotRef.current = null;
       orbitLineRef.current = null;
       glowSpriteRef.current = null;
     };
@@ -550,26 +574,24 @@ export default function GlobeView({ positions, satNames, selectedOrbit, selected
     }
   }, [positions]);
 
-  // Highlight layer shows hovered or selected (hover wins); the rAF loop keeps its position lerped
-  // between snapshots using the index stored here. The glow halo mirrors its visibility.
+  // Highlight sprites show hovered or selected (hover wins); the rAF loop keeps their positions
+  // lerped between snapshots using the index stored here. The glow halo mirrors the dot's visibility.
   useEffect(() => {
-    const highlight = highlightRef.current;
+    const dot = highlightDotRef.current;
     const glow = glowSpriteRef.current;
-    if (!highlight) return;
+    if (!dot) return;
     const shown = hoveredCatnr ?? selectedCatnr;
     const idx = shown != null ? positions.findIndex((p) => p.catnr === shown) : -1;
     highlightIdxRef.current = idx;
     if (idx >= 0) {
       const cur = worldCurRef.current;
       if (cur.length >= (idx + 1) * 3) {
-        const hp = highlight.geometry.attributes.position as THREE.BufferAttribute;
-        hp.setXYZ(0, cur[idx * 3], cur[idx * 3 + 1], cur[idx * 3 + 2]);
-        hp.needsUpdate = true;
+        dot.position.set(cur[idx * 3], cur[idx * 3 + 1], cur[idx * 3 + 2]);
       }
-      highlight.visible = true;
+      dot.visible = true;
       if (glow) glow.visible = true;
     } else {
-      highlight.visible = false;
+      dot.visible = false;
       if (glow) glow.visible = false;
     }
   }, [positions, selectedCatnr, hoveredCatnr]);

@@ -26,6 +26,7 @@ vi.mock("globe.gl", () => ({
     camera() {
       return {
         isCamera: true,
+        fov: 60,
         position: {
           x: cameraState.x,
           y: cameraState.y,
@@ -415,7 +416,7 @@ describe("orbitGradientColors", () => {
     }
   });
 
-  it("renders a white-hot gaussian head and a clearly dimmer green tail", () => {
+  it("renders a white-hot gaussian head and a clearly dimmer violet tail", () => {
     const colors = orbitGradientColors(120, 0);
     // head at the phase vertex is white-hot (≈ 1.0 in every channel)
     expect(colors[0]).toBeCloseTo(1, 2);
@@ -423,11 +424,11 @@ describe("orbitGradientColors", () => {
     expect(colors[2]).toBeCloseTo(1, 2);
     // a vertex within 2 of the phase still reads near-white-hot (narrow head)
     expect(colors[1 * 3]).toBeGreaterThan(0.9);
-    // tail opposite the head sits at 20% of #2ee88a, clearly dimmer than the head
-    const tailAt = (c: number) => (c * 0.2) / 255;
-    expect(colors[60 * 3]).toBeCloseTo(tailAt(46), 3);
-    expect(colors[60 * 3 + 1]).toBeCloseTo(tailAt(232), 3);
-    expect(colors[60 * 3 + 2]).toBeCloseTo(tailAt(138), 3);
+    // tail opposite the head sits at 35% of #a855f7, clearly dimmer than the head
+    const tailAt = (c: number) => (c * 0.35) / 255;
+    expect(colors[60 * 3]).toBeCloseTo(tailAt(168), 3);
+    expect(colors[60 * 3 + 1]).toBeCloseTo(tailAt(85), 3);
+    expect(colors[60 * 3 + 2]).toBeCloseTo(tailAt(247), 3);
     expect(colors[60 * 3 + 1]).toBeLessThan(0.5);
   });
 });
@@ -563,39 +564,47 @@ describe("GlobeView", () => {
 
   it("suppresses hover highlighting and tooltips while locked", () => {
     const { container, mapEl } = renderGlobe({ locked: true });
-    const highlight = createdPoints.find((p) => p.geometry.attributes.position.count === 1)!;
+    const dot = threeLineMocks.createdSprites[0];
+    const glow = threeLineMocks.createdSprites[1];
     fireEvent.pointerMove(mapEl, { clientX: 480, clientY: 270 });
-    expect(highlight.visible).toBe(false);
+    expect(dot.visible).toBe(false);
+    expect(glow.visible).toBe(false);
     const tooltip = container.querySelector(".globe-tooltip")!;
     expect(tooltip.classList.contains("visible")).toBe(false);
     expect((mapEl as HTMLElement).style.cursor).toBe("");
   });
 
-  it("highlights the hovered satellite and shows a name tooltip", () => {
+  it("highlights the hovered satellite with a round dot sprite and shows a name tooltip", () => {
     const { container, mapEl } = renderGlobe();
-    const highlight = createdPoints.find((p) => p.geometry.attributes.position.count === 1)!;
-    expect(highlight.visible).toBe(false);
+    const dot = threeLineMocks.createdSprites[0];
+    const glow = threeLineMocks.createdSprites[1];
+    expect(dot.visible).toBe(false);
+    expect(glow.visible).toBe(false);
     // Sat 0 projects to (480, 270) in the 800x600 test rect.
     fireEvent.pointerMove(mapEl, { clientX: 480, clientY: 270 });
-    expect(highlight.visible).toBe(true);
+    expect(dot.visible).toBe(true);
+    expect(glow.visible).toBe(true);
     expect((mapEl as HTMLElement).style.cursor).toBe("pointer");
     const tooltip = container.querySelector(".globe-tooltip")!;
     expect(tooltip.classList.contains("visible")).toBe(true);
     expect(tooltip.textContent).toBe("Sat One · 1");
     fireEvent.pointerMove(mapEl, { clientX: 5, clientY: 5 });
-    expect(highlight.visible).toBe(false);
+    expect(dot.visible).toBe(false);
+    expect(glow.visible).toBe(false);
     expect((mapEl as HTMLElement).style.cursor).toBe("");
     expect(tooltip.classList.contains("visible")).toBe(false);
   });
 
-  it("shows the highlight layer for the selected satellite", () => {
+  it("shows the round highlight sprite for the selected satellite", () => {
     render(
       <GlobeView positions={positions} satNames={satNames} selectedOrbit={null} selectedCatnr={2} onSelect={() => {}} />
     );
-    const highlight = createdPoints.find((p) => p.geometry.attributes.position.count === 1)!;
-    expect(highlight.visible).toBe(true);
-    const pos = highlight.geometry.attributes.position.array as number[];
-    expect(pos[2]).toBeCloseTo(0.35, 5); // sat 2's altitude (capped GEO)
+    const dot = threeLineMocks.createdSprites[0];
+    expect(dot.visible).toBe(true);
+    // sat 2's world coords: mock getCoords maps (lat, lon, alt) -> (lon, lat, alt), GEO altitude capped
+    expect(dot.position.x).toBeCloseTo(60, 5);
+    expect(dot.position.y).toBeCloseTo(-30, 5);
+    expect(dot.position.z).toBeCloseTo(0.35, 5);
   });
 
   it("renders the selected orbit as a Line2 with world-coord positions and one stable label named from satNames", () => {
@@ -680,58 +689,59 @@ describe("GlobeView", () => {
     expect(Array.from(line.geometry.colors as Float32Array)).toEqual(Array.from(orbitGradientColors(3, 0.04)));
   });
 
-  it("pulses the highlight dot size and follows the selected satellite with the glow halo", () => {
+  it("pulses the round highlight sprite and follows the selected satellite with the glow halo", () => {
     render(
       <GlobeView positions={positions} satNames={satNames} selectedOrbit={null} selectedCatnr={1} onSelect={() => {}} />
     );
-    const highlight = createdPoints.find((p) => p.geometry.attributes.position.count === 1)!;
-    expect(highlight.visible).toBe(true);
-    expect(highlight.material.vertexColors).toBe(true);
-    // the selected dot is a constant screen-size pixel dot (no world-size attenuation), so it
-    // stays unmissable at every zoom
-    expect(highlight.material.sizeAttenuation).toBe(false);
-    expect(highlight.material.size).toBe(14);
-    const glow = threeLineMocks.createdSprites[0];
-    expect(glow).toBeDefined();
+    const dot = threeLineMocks.createdSprites[0];
+    const glow = threeLineMocks.createdSprites[1];
+    expect(dot.visible).toBe(true);
     expect(glow.visible).toBe(true);
     expect(glow.material.map).toBeDefined();
+    // the highlight dot uses a radial-gradient texture so it renders ROUND, never a square
+    expect(dot.material.map).toBeDefined();
 
-    // two frames at different times -> different pulsing sizes (strong ~3.8s pulse around the base)
+    // two frames at different times -> different pulsing scales (strong ~3.8s pulse around the base)
     const cb1 = rafCallbacks.shift()!;
     cb1(1000);
-    const size1 = highlight.material.size;
-    expect(size1).toBeGreaterThan(14 * (1 - 0.55));
-    expect(size1).toBeLessThan(14 * (1 + 0.55));
-    // the glow halo breathes with the same phase (base = dot size * GLOW_FACTOR)
+    const dotScale1 = dot.scale.x;
     const glowScale1 = glow.scale.x;
-    expect(glowScale1).toBeGreaterThan(0);
+    expect(dotScale1).toBeGreaterThan(0);
+    expect(glowScale1).toBeGreaterThan(dotScale1);
 
     const cb2 = rafCallbacks.shift()!;
     cb2(2500);
-    expect(highlight.material.size).not.toBe(size1);
+    expect(dot.scale.x).not.toBe(dotScale1);
     expect(glow.scale.x).not.toBe(glowScale1);
 
-    // the glow sprite tracks the selected satellite's lerped world coords (sat 1: lon 20, lat 10)
+    // the dot and glow track the selected satellite's lerped world coords (sat 1: lon 20, lat 10)
+    expect(dot.position.x).toBeCloseTo(20, 5);
+    expect(dot.position.y).toBeCloseTo(10, 5);
     expect(glow.position.x).toBeCloseTo(20, 5);
     expect(glow.position.y).toBeCloseTo(10, 5);
   });
 
   it("resizes dots when the camera zooms, keeping the highlight a constant pixel size", () => {
     render(
-      <GlobeView positions={positions} satNames={satNames} selectedOrbit={null} selectedCatnr={null} onSelect={() => {}} />
+      <GlobeView positions={positions} satNames={satNames} selectedOrbit={null} selectedCatnr={1} onSelect={() => {}} />
     );
     const base = createdPoints.find((p) => p.geometry.attributes.position.count === 2)!;
-    const highlight = createdPoints.find((p) => p.geometry.attributes.position.count === 1)!;
     expect(base.material.size).toBe(0.02);
-    expect(highlight.material.size).toBe(14); // pixel size, independent of world distance
+    // the highlight dot is pixel-constant: its world scale shrinks with camera distance
+    const dot = threeLineMocks.createdSprites[0];
+    expect(dot.visible).toBe(true);
+    rafCallbacks.shift()!(1000);
+    const scaleAt10 = dot.scale.x;
+    expect(scaleAt10).toBeGreaterThan(0);
     // zoom in to half the reference distance and fire the OrbitControls 'change' event
     cameraState.z = 5;
     controlsListeners.change?.();
     expect(base.material.size).toBe(dotSizeFor(5, 10, 0.02));
     expect(base.material.size).toBeGreaterThan(0.02);
-    // the highlight stays a constant 14px on screen regardless of zoom
-    expect(highlight.material.size).toBe(14);
-    expect(highlight.material.sizeAttenuation).toBe(false);
+    // next frame at the same pulse phase (1000 + 2π*600ms): the dot's world scale halves so its
+    // on-screen pixels stay the same
+    rafCallbacks.shift()!(1000 + 2 * Math.PI * 600);
+    expect(dot.scale.x).toBeCloseTo(scaleAt10 * 0.5, 5);
   });
 
   it("glides base dots, the highlight and the label between snapshots via the rAF loop", () => {
@@ -740,9 +750,8 @@ describe("GlobeView", () => {
 
     const { rerender } = renderGlobe({ selectedCatnr: 1 });
     const base = createdPoints.find((p) => p.geometry.attributes.position.count === 2)!;
-    const highlight = createdPoints.find((p) => p.geometry.attributes.position.count === 1)!;
+    const dot = threeLineMocks.createdSprites[0];
     const posAttr = base.geometry.attributes.position;
-    const hp = highlight.geometry.attributes.position;
 
     // new snapshot arrives: sat 0 moves (+2 lat, +2 lon), sat 1 stays put
     const moved = positions.map((p, i) => (i === 0 ? { ...p, lat: p.lat + 2, lon: p.lon + 2 } : p));
@@ -763,9 +772,9 @@ describe("GlobeView", () => {
     expect(posAttr.array[3]).toBeCloseTo(60, 5);
     expect(posAttr.array[4]).toBeCloseTo(-30, 5);
 
-    // the highlight tracks the same lerped position for the selected sat
-    expect(hp.array[0]).toBeCloseTo(21, 5);
-    expect(hp.array[1]).toBeCloseTo(11, 5);
+    // the highlight dot sprite tracks the same lerped position for the selected sat
+    expect(dot.position.x).toBeCloseTo(21, 5);
+    expect(dot.position.y).toBeCloseTo(11, 5);
 
     // the label glides between the previous and current lat/lngs
     const labelCalls = labelsDataMock.mock.calls.filter((c) => (c[0] as unknown[]).length > 0);
