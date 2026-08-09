@@ -30,15 +30,17 @@ const ORBIT_ALTITUDE = 0.07;
 const ORBIT_LINE_WIDTH = 4;
 const ORBIT_PHASE_STEP = 0.02;
 
-// Selected-satellite highlight: a pulsing mint-green dot plus a soft radial-gradient halo sprite.
-// Both are round radial-gradient sprites (never the square quads THREE.Points renders) and scale
-// WITH the globe like ordinary dots — but at ~1.6x their size — with a small pixel floor so the
-// marker stays findable when zoomed far out instead of either vanishing or ballooning into a blob.
-const SELECTION_FACTOR = 1.6;  // selection dot ~1.6x the base dot size
-const SELECTION_MIN_PX = 7;    // never smaller than ~7px on screen
-const GLOW_HALO_FACTOR = 3;    // halo is 3x the dot, so it breathes proportionally
+// Selected-satellite highlight: a mint-green dot plus a soft radial-gradient halo sprite. Both are
+// round radial-gradient sprites (never the square quads THREE.Points renders) that scale WITH the
+// globe like ordinary dots — the dot ~1.3x their size, the halo 3x the dot — floored to a tiny
+// pixel size at far zoom. The selection breathes via opacity, not size, so it never balloons into
+// a giant pulsing blob at any zoom.
+const SELECTION_FACTOR = 1.3;  // selection dot ~1.3x the base dot size
+const SELECTION_MIN_PX = 5;    // never smaller than ~5px on screen
+const GLOW_HALO_FACTOR = 3;    // halo is 3x the dot
 const GLOW_TEX_SIZE = 128;
-const PULSE_AMPLITUDE = 0.55;
+const PULSE_AMPLITUDE = 0.3;   // opacity pulse depth (size stays stable)
+const PULSE_MEAN = 0.72;       // mean opacity of the pulsing dot
 const PULSE_PERIOD_MS = 600; // ~3.8s pulse
 
 /** Dot size (globe-radius units) for a camera at `distance` from a reference distance `refDist`. */
@@ -422,18 +424,23 @@ export default function GlobeView({ positions, satNames, selectedOrbit, selected
         const hi = highlightIdxRef.current;
         const dot = highlightDotRef.current;
         if (hi >= 0 && dot?.visible) {
-          // The marker scales with the globe (like the base dots, ~1.6x their size) but never
-          // shrinks below a small pixel floor at far zoom; the halo breathes proportionally.
+          // The marker scales with the globe (like the base dots, ~1.3x their size) but never
+          // shrinks below a small pixel floor at far zoom; the halo is a fixed 3x the dot. The
+          // pulse breathes the OPACITY so the selection reads as alive without ballooning in size.
           const pulse = Math.sin(now / PULSE_PERIOD_MS);
-          const dotWorld = dotSizeRef.current * SELECTION_FACTOR * (1 + PULSE_AMPLITUDE * pulse);
-          const dScale = Math.max(dotWorld, pxScale(SELECTION_MIN_PX));
+          const dotScale = Math.max(
+            dotSizeRef.current * SELECTION_FACTOR,
+            pxScale(SELECTION_MIN_PX)
+          );
           dot.position.set(lerpOutRef.current[hi * 3], lerpOutRef.current[hi * 3 + 1], lerpOutRef.current[hi * 3 + 2]);
-          dot.scale.set(dScale, dScale, 1);
+          dot.scale.set(dotScale, dotScale, 1);
+          dot.material.opacity = PULSE_MEAN + PULSE_AMPLITUDE * pulse;
           const glow = glowSpriteRef.current;
           if (glow) {
             glow.position.set(lerpOutRef.current[hi * 3], lerpOutRef.current[hi * 3 + 1], lerpOutRef.current[hi * 3 + 2]);
-            const gScale = dScale * GLOW_HALO_FACTOR;
+            const gScale = dotScale * GLOW_HALO_FACTOR;
             glow.scale.set(gScale, gScale, 1);
+            glow.material.opacity = PULSE_MEAN - 0.12 + PULSE_AMPLITUDE * pulse;
           }
         }
 

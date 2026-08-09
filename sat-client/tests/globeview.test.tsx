@@ -689,11 +689,8 @@ describe("GlobeView", () => {
     expect(Array.from(line.geometry.colors as Float32Array)).toEqual(Array.from(orbitGradientColors(3, 0.04)));
   });
 
-  it("pulses the round highlight sprite and follows the selected satellite with the glow halo", () => {
+  it("pulses the highlight's opacity, keeping its size stable, and follows the satellite with the glow halo", () => {
     const { mapEl } = renderGlobe({ selectedCatnr: 1 });
-    // zoom in so the world-scaled marker outgrows its pixel floor (pulse visible in the scale)
-    cameraState.z = 3;
-    controlsListeners.change?.();
     const dot = threeLineMocks.createdSprites[0];
     const glow = threeLineMocks.createdSprites[1];
     expect(dot.visible).toBe(true);
@@ -702,18 +699,21 @@ describe("GlobeView", () => {
     // the highlight dot uses a radial-gradient texture so it renders ROUND, never a square
     expect(dot.material.map).toBeDefined();
 
-    // two frames at different times -> different pulsing scales (strong ~3.8s pulse around the base)
+    // two frames at different times -> different pulsing opacities, but STABLE sizes (the marker
+    // must never balloon into a pulsing blob)
     const cb1 = rafCallbacks.shift()!;
     cb1(1000);
+    const dotOpacity1 = dot.material.opacity;
+    const glowOpacity1 = glow.material.opacity;
     const dotScale1 = dot.scale.x;
-    const glowScale1 = glow.scale.x;
-    expect(dotScale1).toBeGreaterThan(0);
-    expect(glowScale1).toBeGreaterThan(dotScale1);
+    expect(dotOpacity1).toBeGreaterThan(0);
+    expect(glow.scale.x).toBeGreaterThan(dot.scale.x);
 
     const cb2 = rafCallbacks.shift()!;
     cb2(2500);
-    expect(dot.scale.x).not.toBe(dotScale1);
-    expect(glow.scale.x).not.toBe(glowScale1);
+    expect(dot.material.opacity).not.toBe(dotOpacity1);
+    expect(glow.material.opacity).not.toBe(glowOpacity1);
+    expect(dot.scale.x).toBe(dotScale1);
 
     // the dot and glow track the selected satellite's lerped world coords (sat 1: lon 20, lat 10)
     expect(dot.position.x).toBeCloseTo(20, 5);
@@ -730,7 +730,7 @@ describe("GlobeView", () => {
     const dot = threeLineMocks.createdSprites[0];
     expect(dot.visible).toBe(true);
     const frame = (now: number) => rafCallbacks.shift()!(now);
-    const floorAt = (z: number) => (7 / 600) * (2 * Math.tan((60 * Math.PI) / 360) * z);
+    const floorAt = (z: number) => (5 / 600) * (2 * Math.tan((60 * Math.PI) / 360) * z);
 
     // far zoom (z=30): the world-scaled dot would be ~1px, so the pixel floor keeps it ~7px
     cameraState.z = 30;
