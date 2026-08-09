@@ -13,10 +13,10 @@ const COUNTRIES_URL =
 const ALT_CAP = 0.35;
 const altR = (altKm: number) => Math.min(altKm / 6371, ALT_CAP);
 
-// Point sizes in globe-radius units; dots gently grow as the camera zooms in (~2-5px dots at the
-// default camera, up to a visible 9% of the globe radius). The selected dot is a separate pixel-
-// constant highlight (sizeAttenuation: false) so it stays a fixed 14px on screen at any zoom, and
-// the glow halo ~7x the dot's world size so the halo clearly surrounds the selection.
+// Dot sizes in globe-RADIUS units: dots gently grow as the camera zooms in (~2-5px dots at the
+// default camera, up to a visible 9% of the globe radius). This globe.gl build uses a globe radius
+// of ~100 three.js units, so every size below is multiplied by the actual radius before being
+// applied to materials/sprites (see `globeRadius` in the component).
 const BASE_SIZE = 0.02;
 const MIN_DOT_SIZE = 0.01;
 const MAX_DOT_SIZE = 0.09;
@@ -30,11 +30,11 @@ const ORBIT_ALTITUDE = 0.07;
 const ORBIT_LINE_WIDTH = 4;
 const ORBIT_PHASE_STEP = 0.02;
 
-// Selected-satellite highlight: a mint-green dot plus a soft radial-gradient halo sprite. Both are
-// round radial-gradient sprites (never the square quads THREE.Points renders) that scale WITH the
-// globe like ordinary dots — the dot ~1.3x their size, the halo 3x the dot — floored to a tiny
-// pixel size at far zoom. The selection breathes via opacity, not size, so it never balloons into
-// a giant pulsing blob at any zoom.
+// Selected-satellite highlight: a mint-green dot plus a soft radial-gradient halo sprite. Both
+// are round radial-gradient sprites (never the square quads THREE.Points renders) that scale WITH
+// the globe like ordinary dots — the dot ~1.3x their size, the halo 3x the dot — floored to a
+// tiny pixel size at far zoom so the marker is always visible. The selection breathes via
+// opacity, not size, so it never balloons into a giant pulsing blob at any zoom.
 const SELECTION_FACTOR = 1.3;  // selection dot ~1.3x the base dot size
 const SELECTION_MIN_PX = 5;    // never smaller than ~5px on screen
 const GLOW_HALO_FACTOR = 3;    // halo is 3x the dot
@@ -199,6 +199,9 @@ export default function GlobeView({ positions, satNames, selectedOrbit, selected
     const globe = new Globe(container, { rendererConfig: { antialias: true } });
     // dev/verification handle for the visual-check harness
     (window as { __ftGlobe?: unknown }).__ftGlobe = globe;
+    // this globe.gl build renders the sphere at ~100 three.js units radius; dot sizes are expressed
+    // in globe-radius units, so multiply by the real radius before applying them to materials.
+    const globeRadius = (globe as { getGlobeRadius?: () => number }).getGlobeRadius?.() ?? 100;
     globe
       .backgroundColor("#050816")
       .showAtmosphere(true)
@@ -219,7 +222,7 @@ export default function GlobeView({ positions, satNames, selectedOrbit, selected
     // All satellites render as one THREE.Points layer (single draw call); the selection is a pair
     // of round radial-gradient sprites (dot + halo) that never look like the square quads
     // THREE.Points renders, scaled with the globe and floored to a minimum pixel size.
-    const basePoints = buildPoints(positions.length, BASE_SIZE);
+    const basePoints = buildPoints(positions.length, BASE_SIZE * globeRadius);
     baseRef.current = basePoints;
 
     // Trajectory: a fat gradient line looping the globe. Positions are written when an orbit is
@@ -293,7 +296,7 @@ export default function GlobeView({ positions, satNames, selectedOrbit, selected
     const refDist = globe.camera().position.distanceTo(controls.target);
     const applySize = () => {
       const dist = globe.camera().position.distanceTo(controls.target);
-      const size = dotSizeFor(dist, refDist, BASE_SIZE);
+      const size = dotSizeFor(dist, refDist, BASE_SIZE) * globeRadius;
       dotSizeRef.current = size;
       (basePoints.material as THREE.PointsMaterial).size = size;
     };
@@ -434,13 +437,13 @@ export default function GlobeView({ positions, satNames, selectedOrbit, selected
           );
           dot.position.set(lerpOutRef.current[hi * 3], lerpOutRef.current[hi * 3 + 1], lerpOutRef.current[hi * 3 + 2]);
           dot.scale.set(dotScale, dotScale, 1);
-          dot.material.opacity = PULSE_MEAN + PULSE_AMPLITUDE * pulse;
+          dot.material.opacity = Math.min(1, PULSE_MEAN + PULSE_AMPLITUDE * pulse);
           const glow = glowSpriteRef.current;
           if (glow) {
             glow.position.set(lerpOutRef.current[hi * 3], lerpOutRef.current[hi * 3 + 1], lerpOutRef.current[hi * 3 + 2]);
             const gScale = dotScale * GLOW_HALO_FACTOR;
             glow.scale.set(gScale, gScale, 1);
-            glow.material.opacity = PULSE_MEAN - 0.12 + PULSE_AMPLITUDE * pulse;
+            glow.material.opacity = Math.min(1, PULSE_MEAN - 0.12 + PULSE_AMPLITUDE * pulse);
           }
         }
 

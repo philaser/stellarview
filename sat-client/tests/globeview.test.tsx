@@ -48,6 +48,9 @@ vi.mock("globe.gl", () => ({
     getCoords(lat: number, lng: number, altitude = 0) {
       return { x: lng, y: lat, z: altitude };
     }
+    getGlobeRadius() {
+      return 100;
+    }
     lights(d: unknown) {
       config.lights = d;
       return this;
@@ -516,7 +519,7 @@ describe("GlobeView", () => {
     );
     const base = createdPoints.find((p) => p.geometry.attributes.position.count === 2);
     expect(base).toBeDefined();
-    expect(base.material.size).toBe(0.02); // base dot size at the reference camera distance
+    expect(base.material.size).toBe(2); // 0.02 globe radii x 100-unit globe radius
     const pos = base.geometry.attributes.position.array as number[];
     expect(pos[2]).toBeCloseTo(420 / 6371, 3);
     expect(pos[5]).toBeCloseTo(0.35, 5);
@@ -726,23 +729,24 @@ describe("GlobeView", () => {
   it("floors the highlight to a minimum pixel size at far zoom and scales it with the globe up close", () => {
     const { mapEl } = renderGlobe({ selectedCatnr: 1 });
     const base = createdPoints.find((p) => p.geometry.attributes.position.count === 2)!;
-    expect(base.material.size).toBe(0.02);
+    expect(base.material.size).toBe(2); // 0.02 globe radii x 100-unit globe radius
     const dot = threeLineMocks.createdSprites[0];
     expect(dot.visible).toBe(true);
     const frame = (now: number) => rafCallbacks.shift()!(now);
     const floorAt = (z: number) => (5 / 600) * (2 * Math.tan((60 * Math.PI) / 360) * z);
 
-    // far zoom (z=30): the world-scaled dot would be ~1px, so the pixel floor keeps it ~7px
-    cameraState.z = 30;
+    // very far zoom (z=200): the world-scaled marker would be ~2px, so the pixel floor keeps it ~5px
+    cameraState.z = 200;
     controlsListeners.change?.();
     frame(1000);
-    expect(dot.scale.x).toBeCloseTo(floorAt(30), 4);
+    expect(dot.scale.x).toBeCloseTo(floorAt(200), 4);
 
-    // close zoom (z=2, same pulse phase): the dot now outgrows the floor and scales with the globe
+    // close zoom (z=2, same pulse phase): the marker outgrows the floor and scales with the globe
+    // at ~1.3x the base dot size (both in globe-radius units x the 100-unit radius)
     cameraState.z = 2;
     controlsListeners.change?.();
     frame(1000 + 2 * Math.PI * 600);
-    expect(dot.scale.x).toBeGreaterThan(floorAt(2));
+    expect(dot.scale.x).toBeCloseTo(dotSizeFor(2, 10, 0.02) * 100 * 1.3, 2);
     mapEl; // referenced to keep renderGlobe's container rect active
   });
 

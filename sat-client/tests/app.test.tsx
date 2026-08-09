@@ -80,6 +80,9 @@ vi.mock("globe.gl", () => ({
     getCoords(_lat: number, _lng: number, altitude = 0) {
       return { x: 0, y: 0, z: altitude };
     }
+    getGlobeRadius() {
+      return 100;
+    }
     lights() { return this; }
     polygonsData() { return this; }
     polygonCapColor() { return this; }
