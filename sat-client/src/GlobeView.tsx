@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import * as THREE from "three";
 import Globe from "globe.gl";
 import { Line2 } from "three/examples/jsm/lines/Line2.js";
@@ -85,7 +85,9 @@ export function orbitGradientColors(vertexCount: number, phase: number): Float32
 // Screen-space picking radii (px) around the cursor; the nearest projected dot wins.
 const HOVER_THRESHOLD = 8;
 const CLICK_THRESHOLD = 12;
-const TOOLTIP_OFFSET = 14;
+const TOOLTIP_OFFSET_X = 12;
+const TOOLTIP_OFFSET_Y = 16;
+const TOOLTIP_MARGIN = 4;
 
 export interface GlobeViewProps {
   positions: SatDot[];
@@ -174,6 +176,8 @@ export default function GlobeView({ positions, satNames, selectedOrbit, selected
   const labelEntryRef = useRef<{ lat: number; lng: number; catnr: number; altKm: number } | null>(null);
   const [hoveredCatnr, setHoveredCatnr] = useState<number | null>(null);
   const [tooltip, setTooltip] = useState<{ x: number; y: number; text: string } | null>(null);
+  const tooltipRef = useRef<HTMLDivElement>(null);
+  const [tooltipPos, setTooltipPos] = useState({ left: 0, top: 0 });
 
   useEffect(() => {
     const container = containerRef.current!;
@@ -186,6 +190,15 @@ export default function GlobeView({ positions, satNames, selectedOrbit, selected
       .atmosphereColor("#3a4a6b")
       .showGraticules(false)
       .pointOfView({ lat: 20, lng: 0, altitude: 3.2 });
+
+    // Ambient-dominated soft lighting: raise ambient so the night side reads as a subtle blue-gray
+    // instead of a near-black patch, and lower the directional so the terminator is a gentle gradient.
+    // Intensities carry the physical-unit x PI multiplier this globe.gl build uses (see three's
+    // BRDF_Lambert / pi), matching the old legacy intensity accessors' values.
+    globe.lights([
+      new THREE.AmbientLight("#cbd5e1", 1.6 * Math.PI),
+      new THREE.DirectionalLight("#ffffff", 0.45 * Math.PI),
+    ]);
 
     globe
       .labelsData([])
@@ -316,8 +329,8 @@ export default function GlobeView({ positions, satNames, selectedOrbit, selected
       }
       setHoveredCatnr(catnr);
       setTooltip({
-        x: hit.px + TOOLTIP_OFFSET,
-        y: hit.py + TOOLTIP_OFFSET,
+        x: hit.px + TOOLTIP_OFFSET_X,
+        y: hit.py + TOOLTIP_OFFSET_Y,
         text: `${satNamesRef.current[catnr] ?? "Unknown"} · ${catnr}`,
       });
       container.style.cursor = "pointer";
@@ -571,13 +584,28 @@ export default function GlobeView({ positions, satNames, selectedOrbit, selected
     }
   }, [selectedOrbit]);
 
+  // Clamp the tooltip inside the globe container: after it becomes visible (so its size is measurable),
+  // keep the whole box within the map bounds with a small margin at the right/bottom edges.
+  useLayoutEffect(() => {
+    const el = tooltipRef.current;
+    const container = containerRef.current;
+    if (!el || !container || !tooltip) return;
+    const rect = container.getBoundingClientRect();
+    const tw = el.offsetWidth;
+    const th = el.offsetHeight;
+    const left = Math.max(TOOLTIP_MARGIN, Math.min(tooltip.x, rect.width - tw - TOOLTIP_MARGIN));
+    const top = Math.max(TOOLTIP_MARGIN, Math.min(tooltip.y, rect.height - th - TOOLTIP_MARGIN));
+    setTooltipPos({ left, top });
+  }, [tooltip]);
+
   return (
     // globe.gl wipes the container's children on init, so the tooltip lives as a sibling of the container.
     <div className="map-globe">
       <div ref={containerRef} className="map" />
       <div
+        ref={tooltipRef}
         className={tooltip ? "globe-tooltip visible" : "globe-tooltip"}
-        style={tooltip ? { left: tooltip.x, top: tooltip.y } : undefined}
+        style={{ left: tooltipPos.left, top: tooltipPos.top }}
       >
         {tooltip?.text}
       </div>

@@ -108,6 +108,7 @@ vi.mock("globe.gl", () => ({
     atmosphereColor() { return this; }
     showGraticules() { return this; }
     pointOfView() { return this; }
+    lights() { return this; }
     _destructor() {}
   },
 }));
@@ -210,6 +211,13 @@ vi.mock("three", () => {
   class CanvasTexture {
     dispose() {}
   }
+  class Light {
+    color: Color;
+    constructor() {
+      this.color = new Color();
+    }
+    intensity = 0;
+  }
   return {
     BufferAttribute,
     BufferGeometry,
@@ -222,6 +230,8 @@ vi.mock("three", () => {
     Sprite,
     SpriteMaterial,
     CanvasTexture,
+    AmbientLight: Light,
+    DirectionalLight: Light,
     DynamicDrawUsage: Symbol("DynamicDrawUsage"),
   };
 });

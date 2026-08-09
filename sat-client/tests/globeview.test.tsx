@@ -137,6 +137,9 @@ vi.mock("globe.gl", () => ({
     pointOfView() {
       return this;
     }
+    lights() {
+      return this;
+    }
     _destructor() {}
   },
 }));
@@ -255,6 +258,13 @@ vi.mock("three", () => {
     }
     dispose() {}
   }
+  class Light {
+    color: Color;
+    constructor() {
+      this.color = new Color();
+    }
+    intensity = 0;
+  }
   return {
     BufferAttribute,
     BufferGeometry,
@@ -265,10 +275,11 @@ vi.mock("three", () => {
     Sprite,
     SpriteMaterial,
     CanvasTexture,
+    AmbientLight: Light,
+    DirectionalLight: Light,
     DynamicDrawUsage: Symbol("DynamicDrawUsage"),
   };
 });
-
 const positions = [
   { catnr: 1, lat: 10, lon: 20, altKm: 420, velocityKms: 7.6, color: "#38bdf8", selected: false },
   { catnr: 2, lat: -30, lon: 60, altKm: 35786, velocityKms: 3.1, color: "#fbbf24", selected: false },
