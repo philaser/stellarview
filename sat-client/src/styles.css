@@ -120,6 +120,7 @@ html, body, #root { height: 100%; margin: 0; }
   font: 13px system-ui, sans-serif;
 }
 .filter-group { display: flex; flex-direction: column; gap: 4px; }
+.filter-group.disabled { opacity: 0.45; pointer-events: none; }
 .filter-group-header {
   display: flex; align-items: center; gap: 6px;
   color: #9ca3af; font: 12px system-ui, sans-serif;

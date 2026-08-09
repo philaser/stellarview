@@ -47,6 +47,10 @@ vi.mock("globe.gl", () => ({
     getCoords(lat: number, lng: number, altitude = 0) {
       return { x: lng, y: lat, z: altitude };
     }
+    lights(d: unknown) {
+      config.lights = d;
+      return this;
+    }
     polygonsData(d: unknown) {
       config.polygonsData = d;
       return this;
@@ -164,6 +168,10 @@ vi.mock("three", () => {
   }
   class BufferGeometry {
     attributes: Record<string, BufferAttribute> = {};
+    drawRange: { start: number; count: number } = { start: 0, count: 0 };
+    setDrawRange(start: number, count: number) {
+      this.drawRange = { start, count };
+    }
     setAttribute(name: string, attr: BufferAttribute) {
       this.attributes[name] = attr;
     }
@@ -255,6 +263,13 @@ vi.mock("three", () => {
     }
     dispose() {}
   }
+  class Light {
+    color: Color;
+    constructor() {
+      this.color = new Color();
+    }
+    intensity = 0;
+  }
   return {
     BufferAttribute,
     BufferGeometry,
@@ -265,6 +280,8 @@ vi.mock("three", () => {
     Sprite,
     SpriteMaterial,
     CanvasTexture,
+    AmbientLight: Light,
+    DirectionalLight: Light,
     DynamicDrawUsage: Symbol("DynamicDrawUsage"),
   };
 });
@@ -444,6 +461,52 @@ describe("GlobeView", () => {
       return rafCallbacks.length;
     });
     vi.stubGlobal("cancelAnimationFrame", vi.fn());
+  });
+
+  it("uses day/night lighting when showNight is on and uniform ambient-only when off", () => {
+    const { rerender } = render(
+      <GlobeView
+        positions={positions}
+        satNames={satNames}
+        selectedOrbit={null}
+        selectedCatnr={null}
+        showNight={false}
+        onSelect={() => {}}
+      />
+    );
+    // night off: ambient light only, so the whole globe is uniformly lit
+    expect((config.lights as unknown[]).length).toBe(1);
+    rerender(
+      <GlobeView
+        positions={positions}
+        satNames={satNames}
+        selectedOrbit={null}
+        selectedCatnr={null}
+        showNight={true}
+        onSelect={() => {}}
+      />
+    );
+    // night on: ambient + directional pair restores the day/night terminator
+    expect((config.lights as unknown[]).length).toBe(2);
+  });
+
+  it("trims the rendered draw range when satellites are filtered out", () => {
+    const { rerender } = render(
+      <GlobeView positions={positions} satNames={satNames} selectedOrbit={null} selectedCatnr={null} onSelect={() => {}} />
+    );
+    const base = createdPoints.find((p) => p.geometry.attributes.position.count === 2)!;
+    expect(base.geometry.drawRange.count).toBe(2);
+    rerender(
+      <GlobeView
+        positions={positions.slice(0, 1)}
+        satNames={satNames}
+        selectedOrbit={null}
+        selectedCatnr={null}
+        onSelect={() => {}}
+      />
+    );
+    // filtered-out satellites must no longer render (no stale frozen dots)
+    expect(base.geometry.drawRange.count).toBe(1);
   });
 
   it("renders satellites as a single base Points layer with altitude-normalized positions", () => {

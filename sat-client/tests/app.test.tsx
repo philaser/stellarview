@@ -80,6 +80,7 @@ vi.mock("globe.gl", () => ({
     getCoords(_lat: number, _lng: number, altitude = 0) {
       return { x: 0, y: 0, z: altitude };
     }
+    lights() { return this; }
     polygonsData() { return this; }
     polygonCapColor() { return this; }
     polygonSideColor() { return this; }
@@ -136,6 +137,10 @@ vi.mock("three", () => {
   }
   class BufferGeometry {
     attributes: Record<string, BufferAttribute> = {};
+    drawRange: { start: number; count: number } = { start: 0, count: 0 };
+    setDrawRange(start: number, count: number) {
+      this.drawRange = { start, count };
+    }
     setAttribute(name: string, attr: BufferAttribute) {
       this.attributes[name] = attr;
     }
@@ -210,6 +215,13 @@ vi.mock("three", () => {
   class CanvasTexture {
     dispose() {}
   }
+  class Light {
+    color: Color;
+    constructor() {
+      this.color = new Color();
+    }
+    intensity = 0;
+  }
   return {
     BufferAttribute,
     BufferGeometry,
@@ -222,6 +234,8 @@ vi.mock("three", () => {
     Sprite,
     SpriteMaterial,
     CanvasTexture,
+    AmbientLight: Light,
+    DirectionalLight: Light,
     DynamicDrawUsage: Symbol("DynamicDrawUsage"),
   };
 });
@@ -440,6 +454,34 @@ describe("App", () => {
       capturedClick!({ lngLat: { lng: 293.78, lat: 48.86 } });
     });
     expect(screen.getByText(/Observer: 48\.86, -66\.22/)).toBeInTheDocument();
+  });
+
+  it("disables the inactive filter group when the filter mode is switched", async () => {
+    render(<App />);
+    await act(async () => {});
+    const leo = screen.getByRole("checkbox", { name: "LEO" });
+    const starlink = screen.getByRole("checkbox", { name: "starlink" });
+    // orbit mode (default): regime active, constellation disabled
+    expect((leo as HTMLInputElement).disabled).toBe(false);
+    expect((starlink as HTMLInputElement).disabled).toBe(true);
+    fireEvent.click(screen.getByRole("radio", { name: "Filter by type" }));
+    expect((leo as HTMLInputElement).disabled).toBe(true);
+    expect((starlink as HTMLInputElement).disabled).toBe(false);
+    fireEvent.click(screen.getByRole("radio", { name: "Filter by orbit" }));
+    expect((leo as HTMLInputElement).disabled).toBe(false);
+    expect((starlink as HTMLInputElement).disabled).toBe(true);
+  });
+
+  it("applies only the active filter dimension", async () => {
+    render(<App />);
+    await act(async () => {});
+    const shown = () => screen.getByText(/satellites loaded/).textContent ?? "";
+    // orbit mode: unchecking LEO hides both LEO sats (ISS + STARLINK), leaving GOES
+    fireEvent.click(screen.getByRole("checkbox", { name: "LEO" }));
+    expect(shown()).toContain("· 1 shown");
+    // switching to type mode ignores the regime selection entirely
+    fireEvent.click(screen.getByRole("radio", { name: "Filter by type" }));
+    expect(shown()).toContain("· 3 shown");
   });
 
   it("toggles the day/night overlay", async () => {

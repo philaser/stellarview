@@ -87,11 +87,20 @@ const HOVER_THRESHOLD = 8;
 const CLICK_THRESHOLD = 12;
 const TOOLTIP_OFFSET = 14;
 
+/** Scene lights for the 3D globe: with night shading, globe.gl's default ambient+directional pair so
+ *  the terminator shows; without, ambient-only so the whole globe reads uniformly lit. */
+export function globeLights(showNight: boolean): THREE.Light[] {
+  return showNight
+    ? [new THREE.AmbientLight(0xcccccc, Math.PI), new THREE.DirectionalLight(0xffffff, 0.6 * Math.PI)]
+    : [new THREE.AmbientLight(0xffffff, 2 * Math.PI)];
+}
+
 export interface GlobeViewProps {
   positions: SatDot[];
   satNames: Record<number, string>;
   selectedOrbit: [number, number][] | null;
   selectedCatnr: number | null;
+  showNight?: boolean;
   onSelect: (catnr: number) => void;
 }
 
@@ -140,7 +149,7 @@ function buildPoints(capacity: number, size: number, sizeAttenuation = true): TH
   }));
 }
 
-export default function GlobeView({ positions, satNames, selectedOrbit, selectedCatnr, onSelect }: GlobeViewProps) {
+export default function GlobeView({ positions, satNames, selectedOrbit, selectedCatnr, showNight, onSelect }: GlobeViewProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const globeRef = useRef<InstanceType<typeof Globe> | null>(null);
   const baseRef = useRef<THREE.Points | null>(null);
@@ -427,6 +436,14 @@ export default function GlobeView({ positions, satNames, selectedOrbit, selected
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Day/night toggle: night-on keeps the day/night terminator shading (ambient + directional lights),
+  // night-off switches to ambient-only so the whole globe reads uniformly lit.
+  useEffect(() => {
+    const globe = globeRef.current;
+    if (!globe) return;
+    globe.lights(globeLights(showNight ?? true));
+  }, [showNight]);
+
   // Snapshot bookkeeping: a new `positions` array starts a fresh 2s interpolation epoch. The old
   // snapshot is shifted into the "prev" buffers and new world coords are computed into "cur"; the rAF
   // loop lerps prev -> cur so dots glide. Continuity is free: at arrival t restarts at 0, where the
@@ -491,6 +508,9 @@ export default function GlobeView({ positions, satNames, selectedOrbit, selected
     tickAtRef.current = performance.now();
     posAttr.needsUpdate = true;
     colorAttr.needsUpdate = true;
+    // The buffer keeps its largest-ever capacity; trim the draw range to the current catalog so
+    // filtered-out satellites stop rendering instead of lingering as frozen dots.
+    base.geometry.setDrawRange(0, n);
 
     // Mutate the single label entry in place (no labelsData call) so the label glides with the sat.
     const labelEntry = labelEntryRef.current;

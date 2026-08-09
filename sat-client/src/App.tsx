@@ -31,6 +31,7 @@ export default function App() {
   const [followCatnr, setFollowCatnr] = useState<number | null>(null);
   const [regimes, setRegimes] = useState<Set<Regime>>(new Set(["leo", "meo", "geo"]));
   const [constellations, setConstellations] = useState<Set<Constellation>>(new Set(CONSTELLATIONS));
+  const [filterMode, setFilterMode] = useState<"orbit" | "type">("orbit");
   const [search, setSearch] = useState("");
   const [focus, setFocus] = useState<{ catnr: number; ts: number } | null>(null);
   const [night, setNight] = useState<[number, number][] | null>(null);
@@ -68,11 +69,10 @@ export default function App() {
     const q = search.trim().toLowerCase();
     return sats.filter(
       (s) =>
-        regimes.has(s.regime) &&
-        constellations.has(s.constellation) &&
+        (filterMode === "orbit" ? regimes.has(s.regime) : constellations.has(s.constellation)) &&
         (q === "" || s.name.toLowerCase().includes(q) || String(s.catnr).includes(q))
     );
-  }, [sats, regimes, constellations, search]);
+  }, [sats, regimes, constellations, filterMode, search]);
 
   const regimeCounts = useMemo(() => {
     const counts: Record<Regime, number> = { leo: 0, meo: 0, geo: 0 };
@@ -213,6 +213,7 @@ export default function App() {
           satNames={satNames}
           selectedOrbit={selected && orbits[selected.catnr] ? orbits[selected.catnr] : null}
           selectedCatnr={selectedCatnr}
+          showNight={showNight}
           onSelect={setSelectedCatnr}
         />
       )}
@@ -235,9 +236,36 @@ export default function App() {
       <div className={`controls ${controlsOpen ? "open" : "closed"}`}>
         <div className="filter-group">
           <div className="filter-group-header">
+            <span>Filter by</span>
+          </div>
+          <div className="filter-row">
+            <label>
+              <input
+                type="radio"
+                name="filter-mode"
+                aria-label="Filter by orbit"
+                checked={filterMode === "orbit"}
+                onChange={() => setFilterMode("orbit")}
+              />
+              Orbit
+            </label>
+            <label>
+              <input
+                type="radio"
+                name="filter-mode"
+                aria-label="Filter by type"
+                checked={filterMode === "type"}
+                onChange={() => setFilterMode("type")}
+              />
+              Type
+            </label>
+          </div>
+        </div>
+        <div className={`filter-group ${filterMode === "type" ? "disabled" : ""}`}>
+          <div className="filter-group-header">
             <span>Regime</span>
-            <button aria-label="Regimes: All" onClick={() => setAllRegimes(true)}>All</button>
-            <button aria-label="Regimes: None" onClick={() => setAllRegimes(false)}>None</button>
+            <button aria-label="Regimes: All" disabled={filterMode === "type"} onClick={() => setAllRegimes(true)}>All</button>
+            <button aria-label="Regimes: None" disabled={filterMode === "type"} onClick={() => setAllRegimes(false)}>None</button>
           </div>
           <div className="filter-row">
             {(["leo", "meo", "geo"] as Regime[]).map((r) => (
@@ -246,6 +274,7 @@ export default function App() {
                   type="checkbox"
                   aria-label={r.toUpperCase()}
                   checked={regimes.has(r)}
+                  disabled={filterMode === "type"}
                   onChange={() => toggleRegime(r)}
                 />
                 {r.toUpperCase()} ({regimeCounts[r]})
@@ -253,11 +282,11 @@ export default function App() {
             ))}
           </div>
         </div>
-        <div className="filter-group">
+        <div className={`filter-group ${filterMode === "orbit" ? "disabled" : ""}`}>
           <div className="filter-group-header">
             <span>Constellation</span>
-            <button aria-label="Constellations: All" onClick={() => setAllConstellations(true)}>All</button>
-            <button aria-label="Constellations: None" onClick={() => setAllConstellations(false)}>None</button>
+            <button aria-label="Constellations: All" disabled={filterMode === "orbit"} onClick={() => setAllConstellations(true)}>All</button>
+            <button aria-label="Constellations: None" disabled={filterMode === "orbit"} onClick={() => setAllConstellations(false)}>None</button>
           </div>
           <div className="filter-row">
             {CONSTELLATIONS.map((c) => (
@@ -266,6 +295,7 @@ export default function App() {
                   type="checkbox"
                   aria-label={c}
                   checked={constellations.has(c)}
+                  disabled={filterMode === "orbit"}
                   onChange={() => toggleConstellation(c)}
                 />
                 {c} ({constellationCounts[c]})
