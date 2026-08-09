@@ -365,8 +365,34 @@ describe("App", () => {
     });
     fireEvent.click(screen.getByRole("button", { name: /follow/i }));
     expect(screen.getByRole("button", { name: /following/i })).toBeInTheDocument();
-    fireEvent.click(screen.getByText("Close"));
+    fireEvent.click(screen.getByRole("button", { name: "Close" }));
     expect(screen.queryByRole("button", { name: /following/i })).not.toBeInTheDocument();
+  });
+
+  it("closes the details panel via the header close icon", async () => {
+    render(<App />);
+    await act(async () => {});
+    await switchTo2d();
+    await act(async () => { vi.advanceTimersByTime(2000); });
+    await act(async () => {
+      capturedClick!({ point: { x: 0, y: 0 } });
+    });
+    expect(screen.getByText("ISS (ZARYA)")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Close" }));
+    expect(screen.queryByText("ISS (ZARYA)")).not.toBeInTheDocument();
+  });
+
+  it("merges next passes into the details panel", async () => {
+    render(<App />);
+    await act(async () => {});
+    await switchTo2d();
+    await act(async () => { vi.advanceTimersByTime(2000); });
+    await act(async () => {
+      capturedClick!({ point: { x: 0, y: 0 } });
+    });
+    await act(async () => { vi.advanceTimersByTime(2000); });
+    expect(screen.getByText("Next passes")).toBeInTheDocument();
+    expect(document.querySelector(".pass-list")).toBeNull();
   });
 
   it("hides GEO satellites when the GEO regime is unchecked", async () => {

@@ -291,24 +291,114 @@ html, body, #root { height: 100%; margin: 0; background: #05070c; }
   from { opacity: 0; transform: translateY(14px) scale(0.97); }
   to { opacity: 1; transform: translateY(0) scale(1); }
 }
-.panel h2 { margin: 0 0 10px; font-size: 15px; font-weight: 600; color: #f1f5f9; }
-.panel .row { display: flex; justify-content: space-between; gap: 8px; }
-.panel .row span:first-child { color: #94a3b8; }
-.panel button {
-  margin-top: 8px;
-  margin-right: 6px;
-  background: rgba(255, 255, 255, 0.08);
-  color: #e2e8f0;
-  border: 1px solid rgba(148, 163, 184, 0.2);
+.panel h2 { margin: 0; font-size: 14px; font-weight: 600; color: #f1f5f9; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.row { display: flex; justify-content: space-between; gap: 8px; }
+
+/* ===== Satellite details panel ===== */
+.sat-panel { width: 280px; }
+.panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+.panel-title { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.status-dot { width: 9px; height: 9px; border-radius: 50%; flex-shrink: 0; }
+.panel-close {
+  width: 26px;
+  height: 26px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   border-radius: 999px;
-  padding: 6px 14px;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(148, 163, 184, 0.15);
+  color: #94a3b8;
+  font-size: 15px;
+  line-height: 1;
+  cursor: pointer;
+  transition: background 0.2s ease, border-color 0.2s ease, color 0.2s ease, transform 0.25s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+.panel-close:hover {
+  background: rgba(239, 68, 68, 0.14);
+  border-color: rgba(239, 68, 68, 0.4);
+  color: #fca5a5;
+  transform: rotate(90deg);
+}
+.sat-rows { display: flex; flex-direction: column; }
+.sat-rows .row { padding: 7px 0; border-bottom: 1px solid rgba(148, 163, 184, 0.08); }
+.sat-rows .row:last-child { border-bottom: none; }
+.sat-rows .row span:first-child { color: #94a3b8; }
+.sat-rows .row span:last-child { font-weight: 500; color: #e2e8f0; text-align: right; }
+.val-ok { color: #34d399 !important; }
+.val-warn { color: #fbbf24 !important; }
+.panel-actions { display: flex; gap: 8px; margin-top: 12px; }
+.action-btn {
+  flex: 1;
+  padding: 8px 0;
+  border-radius: 999px;
+  border: 1px solid rgba(148, 163, 184, 0.2);
+  background: rgba(255, 255, 255, 0.06);
+  color: #e2e8f0;
   font: 12px system-ui, sans-serif;
   cursor: pointer;
-  transition: background 0.2s ease, transform 0.2s ease;
+  transition: background 0.2s ease, border-color 0.2s ease, color 0.2s ease, transform 0.2s cubic-bezier(0.2, 0.8, 0.2, 1), box-shadow 0.2s ease;
 }
-.panel button:hover { background: rgba(255, 255, 255, 0.16); transform: translateY(-1px); }
+.action-btn:hover { background: rgba(255, 255, 255, 0.12); transform: translateY(-1px); }
+.action-btn.active {
+  background: #3b82f6;
+  border-color: #3b82f6;
+  color: #fff;
+  box-shadow: 0 0 12px rgba(59, 130, 246, 0.4);
+}
 
-.pass-list { top: 320px; max-height: 260px; overflow-y: auto; }
+/* ===== Next passes (integrated into the details panel) ===== */
+.passes {
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid rgba(148, 163, 184, 0.1);
+}
+.passes .section-title { margin-bottom: 8px; }
+.passes-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 200px;
+  overflow-y: auto;
+}
+.pass-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font: 11.5px system-ui, sans-serif;
+}
+.pass-time {
+  color: #cbd5e1;
+  width: 76px;
+  flex-shrink: 0;
+  font-variant-numeric: tabular-nums;
+}
+.pass-bar-track {
+  flex: 1;
+  height: 4px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.07);
+  overflow: hidden;
+}
+.pass-bar {
+  display: block;
+  height: 100%;
+  border-radius: 999px;
+  background: linear-gradient(90deg, #3b82f6, #22d3ee);
+}
+.pass-elev {
+  color: #94a3b8;
+  width: 36px;
+  flex-shrink: 0;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
 
 /* ===== Search results (floats above the dock) ===== */
 .results-list {

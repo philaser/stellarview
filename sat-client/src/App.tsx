@@ -340,35 +340,60 @@ export default function App() {
         </div>
       )}
       {selected && observer && (
-        <div className="panel">
-          <h2>{selected.name}</h2>
-          <div className="row"><span>Regime</span><span>{selected.regime.toUpperCase()}</span></div>
-          <div className="row"><span>Constellation</span><span>{selected.constellation}</span></div>
-          <div className="row"><span>NORAD id</span><span>{selected.catnr}</span></div>
-          <div className="row"><span>Latitude</span><span>{pos ? `${pos.lat.toFixed(2)}°` : "…"}</span></div>
-          <div className="row"><span>Longitude</span><span>{pos ? `${pos.lon.toFixed(2)}°` : "…"}</span></div>
-          <div className="row"><span>Altitude</span><span>{pos ? `${pos.altKm.toFixed(0)} km` : "…"}</span></div>
-          <div className="row"><span>Speed</span><span>{pos ? `${pos.velocityKms?.toFixed(2)} km/s` : "…"}</span></div>
-          <div className="row"><span>Period</span><span>{Math.round(selected.periodS / 60)} min</span></div>
-          <div className="row"><span>Inclination</span><span>{selected.inclinationDeg.toFixed(1)}°</span></div>
-          <div className="row"><span>Next passes (48h)</span><span>{passes ? passes.length : "…"}</span></div>
-          <div className="row"><span>Visible now</span><span>{visibility ? (visibility.visible ? "Yes" : `No — ${visibility.reason}`) : "…"}</span></div>
-          <button onClick={() => setSelectedCatnr(null)}>Close</button>
-          <button onClick={() => setFollowCatnr(followCatnr === selected.catnr ? null : selected.catnr)}>
-            {followCatnr === selected.catnr ? "Following" : "Follow"}
-          </button>
-          <button onClick={() => setLocked((l) => !l)}>{locked ? "Unlock" : "Lock"}</button>
-        </div>
-      )}
-      {selected && observer && passes && passes.length > 0 && (
-        <div className="panel pass-list" style={{ top: "320px" }}>
-          <h2>Next passes</h2>
-          {passes.map((p, i) => (
-            <div key={i} className="row">
-              <span>{p.start.toLocaleTimeString()}</span>
-              <span>{p.maxElevationDeg.toFixed(0)}°</span>
+        <div className="panel sat-panel">
+          <div className="panel-header">
+            <div className="panel-title">
+              <span className="status-dot" style={{ background: REGIME_COLORS[selected.regime] }} />
+              <h2>{selected.name}</h2>
             </div>
-          ))}
+            <button className="panel-close" aria-label="Close" title="Close" onClick={() => setSelectedCatnr(null)}>×</button>
+          </div>
+          <div className="sat-rows">
+            <div className="row"><span>Regime</span><span>{selected.regime.toUpperCase()}</span></div>
+            <div className="row"><span>Constellation</span><span>{selected.constellation}</span></div>
+            <div className="row"><span>NORAD id</span><span>{selected.catnr}</span></div>
+            <div className="row"><span>Latitude</span><span>{pos ? `${pos.lat.toFixed(2)}°` : "…"}</span></div>
+            <div className="row"><span>Longitude</span><span>{pos ? `${pos.lon.toFixed(2)}°` : "…"}</span></div>
+            <div className="row"><span>Altitude</span><span>{pos ? `${pos.altKm.toFixed(0)} km` : "…"}</span></div>
+            <div className="row"><span>Speed</span><span>{pos ? `${pos.velocityKms?.toFixed(2)} km/s` : "…"}</span></div>
+            <div className="row"><span>Period</span><span>{Math.round(selected.periodS / 60)} min</span></div>
+            <div className="row"><span>Inclination</span><span>{selected.inclinationDeg.toFixed(1)}°</span></div>
+            <div className="row"><span>Visible now</span>
+              <span className={visibility?.visible ? "val-ok" : "val-warn"}>
+                {visibility ? (visibility.visible ? "Yes" : `No — ${visibility.reason}`) : "…"}
+              </span>
+            </div>
+          </div>
+          <div className="panel-actions">
+            <button
+              className={`action-btn ${followCatnr === selected.catnr ? "active" : ""}`}
+              onClick={() => setFollowCatnr(followCatnr === selected.catnr ? null : selected.catnr)}
+            >
+              {followCatnr === selected.catnr ? "Following" : "Follow"}
+            </button>
+            <button
+              className={`action-btn ${locked ? "active" : ""}`}
+              onClick={() => setLocked((l) => !l)}
+            >
+              {locked ? "Unlock" : "Lock"}
+            </button>
+          </div>
+          {passes && passes.length > 0 && (
+            <div className="passes">
+              <div className="section-title">Next passes</div>
+              <div className="passes-list">
+                {passes.map((p, i) => (
+                  <div key={i} className="pass-row">
+                    <span className="pass-time">{p.start.toLocaleTimeString()}</span>
+                    <span className="pass-bar-track">
+                      <span className="pass-bar" style={{ width: `${Math.min(100, (p.maxElevationDeg / 90) * 100)}%` }} />
+                    </span>
+                    <span className="pass-elev">{p.maxElevationDeg.toFixed(0)}°</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
       )}
       {observer && (
