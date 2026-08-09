@@ -38,6 +38,7 @@ export default function App() {
   const [showNight, setShowNight] = useState(true);
   const [controlsOpen, setControlsOpen] = useState(true);
   const [mode, setMode] = useState<"2d" | "3d">("3d");
+  const [locked, setLocked] = useState(false);
 
   useEffect(() => {
     const update = () => setNight(nightPolygon(new Date()));
@@ -214,25 +215,43 @@ export default function App() {
           selectedOrbit={selected && orbits[selected.catnr] ? orbits[selected.catnr] : null}
           selectedCatnr={selectedCatnr}
           showNight={showNight}
+          locked={locked}
           onSelect={setSelectedCatnr}
         />
       )}
-      <button
-        className="mode-button"
-        aria-label="Toggle 3D mode"
-        title={mode === "2d" ? "Show 3D globe" : "Show 2D map"}
-        onClick={() => setMode((m) => (m === "2d" ? "3d" : "2d"))}
-      >
-        {mode === "2d" ? "3D mode" : "2D mode"}
-      </button>
-      <button
-        className="gear-button"
-        aria-label="Toggle filters"
-        title="Filters"
-        onClick={() => setControlsOpen((o) => !o)}
-      >
-        ⚙
-      </button>
+      <div className="dock">
+        <button
+          className={`dock-item gear-button ${controlsOpen ? "active" : ""}`}
+          aria-label="Toggle filters"
+          title="Filters"
+          onClick={() => setControlsOpen((o) => !o)}
+        >
+          ⚙
+        </button>
+        <button
+          className="dock-item"
+          aria-label="Toggle 3D mode"
+          title={mode === "2d" ? "Show 3D globe" : "Show 2D map"}
+          onClick={() => setMode((m) => (m === "2d" ? "3d" : "2d"))}
+        >
+          {mode === "2d" ? "3D mode" : "2D mode"}
+        </button>
+        <button
+          className={`dock-item ${showNight ? "active" : ""}`}
+          aria-label="Day/Night"
+          aria-pressed={showNight}
+          title="Day/Night shading"
+          onClick={() => setShowNight((s) => !s)}
+        >
+          ☀
+        </button>
+        <input
+          className="dock-item dock-search"
+          placeholder="Search satellites…"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+        />
+      </div>
       <div className={`controls ${controlsOpen ? "open" : "closed"}`}>
         <div className="filter-group">
           <div className="filter-group-header">
@@ -303,21 +322,6 @@ export default function App() {
             ))}
           </div>
         </div>
-        <input
-          type="text"
-          placeholder="Search satellites…"
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-        />
-        <label style={{ color: "#e5e7eb" }}>
-          <input
-            type="checkbox"
-            aria-label="Day/Night"
-            checked={showNight}
-            onChange={(e) => setShowNight(e.target.checked)}
-          />
-          Day/Night
-        </label>
         <button onClick={() => window.location.reload()}>Reload TLEs</button>
       </div>
       {searchResults.length > 0 && (
@@ -349,6 +353,7 @@ export default function App() {
           <button onClick={() => setFollowCatnr(followCatnr === selected.catnr ? null : selected.catnr)}>
             {followCatnr === selected.catnr ? "Following" : "Follow"}
           </button>
+          <button onClick={() => setLocked((l) => !l)}>{locked ? "Unlock" : "Lock"}</button>
         </div>
       )}
       {selected && observer && passes && passes.length > 0 && (
@@ -367,9 +372,9 @@ export default function App() {
           Observer: {observer.lat.toFixed(2)}, {observer.lon.toFixed(2)} — click map to change
         </div>
       )}
-      {loadError && <div className="banner">TLE provider unreachable</div>}
+      {loadError && <div className="banner banner-error">TLE provider unreachable</div>}
       {!loadError && (
-        <div className="banner" style={{ background: "#111827" }}>
+        <div className="banner count-pill">
           {sats.length.toLocaleString()} satellites loaded · {visibleSats.length.toLocaleString()} shown
         </div>
       )}

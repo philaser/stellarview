@@ -540,6 +540,37 @@ describe("GlobeView", () => {
     expect(onSelect).not.toHaveBeenCalled();
   });
 
+  it("does not select a satellite when locked", () => {
+    const onSelect = vi.fn();
+    const { mapEl } = renderGlobe({ locked: true, onSelect });
+    fireEvent.click(mapEl, { clientX: 640, clientY: 390 });
+    expect(onSelect).not.toHaveBeenCalled();
+  });
+
+  it("ignores clicks that follow a globe-rotation drag", () => {
+    const onSelect = vi.fn();
+    const { mapEl } = renderGlobe({ onSelect });
+    // pointer goes down away from any dot, drags across the globe, and releases ON a dot:
+    // that is a rotation, not a selection
+    fireEvent.pointerDown(mapEl, { clientX: 600, clientY: 390 });
+    fireEvent.click(mapEl, { clientX: 640, clientY: 390 });
+    expect(onSelect).not.toHaveBeenCalled();
+    // a plain click (no preceding drag) still selects
+    fireEvent.pointerDown(mapEl, { clientX: 640, clientY: 390 });
+    fireEvent.click(mapEl, { clientX: 640, clientY: 390 });
+    expect(onSelect).toHaveBeenCalled();
+  });
+
+  it("suppresses hover highlighting and tooltips while locked", () => {
+    const { container, mapEl } = renderGlobe({ locked: true });
+    const highlight = createdPoints.find((p) => p.geometry.attributes.position.count === 1)!;
+    fireEvent.pointerMove(mapEl, { clientX: 480, clientY: 270 });
+    expect(highlight.visible).toBe(false);
+    const tooltip = container.querySelector(".globe-tooltip")!;
+    expect(tooltip.classList.contains("visible")).toBe(false);
+    expect((mapEl as HTMLElement).style.cursor).toBe("");
+  });
+
   it("highlights the hovered satellite and shows a name tooltip", () => {
     const { container, mapEl } = renderGlobe();
     const highlight = createdPoints.find((p) => p.geometry.attributes.position.count === 1)!;

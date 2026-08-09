@@ -86,6 +86,9 @@ export function orbitGradientColors(vertexCount: number, phase: number): Float32
 const HOVER_THRESHOLD = 8;
 const CLICK_THRESHOLD = 12;
 const TOOLTIP_OFFSET = 14;
+// A click that moved more than this many px from its pointerdown was a globe-rotation drag,
+// not a selection gesture.
+const DRAG_TOLERANCE = 5;
 
 /** Scene lights for the 3D globe: with night shading, globe.gl's default ambient+directional pair so
  *  the terminator shows; without, ambient-only so the whole globe reads uniformly lit. */
@@ -101,6 +104,7 @@ export interface GlobeViewProps {
   selectedOrbit: [number, number][] | null;
   selectedCatnr: number | null;
   showNight?: boolean;
+  locked?: boolean;
   onSelect: (catnr: number) => void;
 }
 
@@ -149,7 +153,7 @@ function buildPoints(capacity: number, size: number, sizeAttenuation = true): TH
   }));
 }
 
-export default function GlobeView({ positions, satNames, selectedOrbit, selectedCatnr, showNight, onSelect }: GlobeViewProps) {
+export default function GlobeView({ positions, satNames, selectedOrbit, selectedCatnr, showNight, locked, onSelect }: GlobeViewProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const globeRef = useRef<InstanceType<typeof Globe> | null>(null);
   const baseRef = useRef<THREE.Points | null>(null);
@@ -160,6 +164,10 @@ export default function GlobeView({ positions, satNames, selectedOrbit, selected
   const orbitPhaseRef = useRef(0);
   const onSelectRef = useRef(onSelect);
   onSelectRef.current = onSelect;
+  const lockedRef = useRef(locked);
+  lockedRef.current = locked;
+  // Pointer position at pointerdown, to tell real clicks apart from rotation drags.
+  const pointerDownRef = useRef<{ x: number; y: number } | null>(null);
   const positionsRef = useRef(positions);
   positionsRef.current = positions;
   const satNamesRef = useRef(satNames);
@@ -309,6 +317,13 @@ export default function GlobeView({ positions, satNames, selectedOrbit, selected
       return idx >= 0 ? { idx, px, py } : null;
     };
     const onPointerMove = (evt: PointerEvent) => {
+      if (lockedRef.current) {
+        // a locked globe only tracks its selection; hovering must not show highlights or tooltips
+        setHoveredCatnr(null);
+        setTooltip(null);
+        container.style.cursor = "";
+        return;
+      }
       const hit = pick(evt, HOVER_THRESHOLD);
       if (!hit) {
         setHoveredCatnr(null);
@@ -331,12 +346,20 @@ export default function GlobeView({ positions, satNames, selectedOrbit, selected
       });
       container.style.cursor = "pointer";
     };
+    const onPointerDown = (evt: PointerEvent) => {
+      pointerDownRef.current = { x: evt.clientX, y: evt.clientY };
+    };
     const onClick = (evt: PointerEvent) => {
+      if (lockedRef.current) return;
+      // a release far from the pointerdown was a globe rotation drag, not a click
+      const down = pointerDownRef.current;
+      if (down && Math.hypot(evt.clientX - down.x, evt.clientY - down.y) > DRAG_TOLERANCE) return;
       const hit = pick(evt, CLICK_THRESHOLD);
       if (!hit) return;
       const sat = positionsRef.current[hit.idx];
       if (sat) onSelectRef.current(sat.catnr);
     };
+    container.addEventListener("pointerdown", onPointerDown);
     container.addEventListener("pointermove", onPointerMove);
     container.addEventListener("click", onClick);
 
@@ -412,6 +435,7 @@ export default function GlobeView({ positions, satNames, selectedOrbit, selected
 
     return () => {
       cancelAnimationFrame(rafId);
+      container.removeEventListener("pointerdown", onPointerDown);
       container.removeEventListener("pointermove", onPointerMove);
       container.removeEventListener("click", onClick);
       controls.removeEventListener("change", applySize);

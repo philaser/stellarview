@@ -487,10 +487,24 @@ describe("App", () => {
   it("toggles the day/night overlay", async () => {
     render(<App />);
     await act(async () => {});
-    const cb = screen.getByLabelText("Day/Night");
-    expect(cb).toBeChecked();
-    fireEvent.click(cb);
-    expect(cb).not.toBeChecked();
+    const btn = screen.getByLabelText("Day/Night");
+    expect(btn).toHaveAttribute("aria-pressed", "true");
+    fireEvent.click(btn);
+    expect(btn).toHaveAttribute("aria-pressed", "false");
+  });
+
+  it("locks and unlocks the selection from the details panel", async () => {
+    render(<App />);
+    await act(async () => {});
+    await switchTo2d();
+    await act(async () => { vi.advanceTimersByTime(2000); });
+    await act(async () => {
+      capturedClick!({ point: { x: 0, y: 0 } });
+    });
+    fireEvent.click(screen.getByRole("button", { name: /lock/i }));
+    expect(screen.getByRole("button", { name: /unlock/i })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /unlock/i }));
+    expect(screen.getByRole("button", { name: /lock/i })).toBeInTheDocument();
   });
 
   it("collapses and expands the controls panel via the gear button", async () => {
