@@ -253,76 +253,80 @@ export default function App() {
         />
       </div>
       <div className={`controls ${controlsOpen ? "open" : "closed"}`}>
-        <div className="filter-group">
-          <div className="filter-group-header">
-            <span>Filter by</span>
-          </div>
-          <div className="filter-row">
-            <label>
-              <input
-                type="radio"
-                name="filter-mode"
-                aria-label="Filter by orbit"
-                checked={filterMode === "orbit"}
-                onChange={() => setFilterMode("orbit")}
-              />
-              Orbit
-            </label>
-            <label>
-              <input
-                type="radio"
-                name="filter-mode"
-                aria-label="Filter by type"
-                checked={filterMode === "type"}
-                onChange={() => setFilterMode("type")}
-              />
-              Type
-            </label>
-          </div>
+        <div className="controls-header">
+          <span className="controls-title">Filters</span>
+          <button className="reload-btn" onClick={() => window.location.reload()}>Reload TLEs</button>
         </div>
-        <div className={`filter-group ${filterMode === "type" ? "disabled" : ""}`}>
-          <div className="filter-group-header">
-            <span>Regime</span>
-            <button aria-label="Regimes: All" disabled={filterMode === "type"} onClick={() => setAllRegimes(true)}>All</button>
-            <button aria-label="Regimes: None" disabled={filterMode === "type"} onClick={() => setAllRegimes(false)}>None</button>
-          </div>
-          <div className="filter-row">
-            {(["leo", "meo", "geo"] as Regime[]).map((r) => (
-              <label key={r} style={{ color: REGIME_COLORS[r] }}>
-                <input
-                  type="checkbox"
-                  aria-label={r.toUpperCase()}
-                  checked={regimes.has(r)}
-                  disabled={filterMode === "type"}
-                  onChange={() => toggleRegime(r)}
-                />
-                {r.toUpperCase()} ({regimeCounts[r]})
-              </label>
-            ))}
-          </div>
+        <div className="segmented" data-mode={filterMode} role="radiogroup" aria-label="Filter mode">
+          <span className="seg-thumb" aria-hidden="true" />
+          <button
+            className="seg-btn"
+            role="radio"
+            aria-label="Filter by orbit"
+            aria-checked={filterMode === "orbit"}
+            onClick={() => setFilterMode("orbit")}
+          >
+            Orbit
+          </button>
+          <button
+            className="seg-btn"
+            role="radio"
+            aria-label="Filter by type"
+            aria-checked={filterMode === "type"}
+            onClick={() => setFilterMode("type")}
+          >
+            Type
+          </button>
         </div>
-        <div className={`filter-group ${filterMode === "orbit" ? "disabled" : ""}`}>
-          <div className="filter-group-header">
-            <span>Constellation</span>
-            <button aria-label="Constellations: All" disabled={filterMode === "orbit"} onClick={() => setAllConstellations(true)}>All</button>
-            <button aria-label="Constellations: None" disabled={filterMode === "orbit"} onClick={() => setAllConstellations(false)}>None</button>
-          </div>
-          <div className="filter-row">
-            {CONSTELLATIONS.map((c) => (
-              <label key={c} style={{ textTransform: "capitalize" }}>
-                <input
-                  type="checkbox"
-                  aria-label={c}
-                  checked={constellations.has(c)}
-                  disabled={filterMode === "orbit"}
-                  onChange={() => toggleConstellation(c)}
-                />
-                {c} ({constellationCounts[c]})
-              </label>
-            ))}
-          </div>
-        </div>
-        <button onClick={() => window.location.reload()}>Reload TLEs</button>
+        {filterMode === "orbit" ? (
+          <section className="filter-section">
+            <div className="section-header">
+              <span className="section-title">Orbit type</span>
+              <span className="section-actions">
+                <button aria-label="Regimes: All" onClick={() => setAllRegimes(true)}>All</button>
+                <button aria-label="Regimes: None" onClick={() => setAllRegimes(false)}>None</button>
+              </span>
+            </div>
+            <div className="chip-row">
+              {(["leo", "meo", "geo"] as Regime[]).map((r) => (
+                <label key={r} className={`chip ${regimes.has(r) ? "checked" : ""}`}>
+                  <input
+                    type="checkbox"
+                    aria-label={r.toUpperCase()}
+                    checked={regimes.has(r)}
+                    onChange={() => toggleRegime(r)}
+                  />
+                  <span className="chip-label" style={{ color: REGIME_COLORS[r] }}>{r.toUpperCase()}</span>
+                  <span className="chip-count">{regimeCounts[r]}</span>
+                </label>
+              ))}
+            </div>
+          </section>
+        ) : (
+          <section className="filter-section">
+            <div className="section-header">
+              <span className="section-title">Constellation</span>
+              <span className="section-actions">
+                <button aria-label="Constellations: All" onClick={() => setAllConstellations(true)}>All</button>
+                <button aria-label="Constellations: None" onClick={() => setAllConstellations(false)}>None</button>
+              </span>
+            </div>
+            <div className="chip-row">
+              {CONSTELLATIONS.map((c) => (
+                <label key={c} className={`chip ${constellations.has(c) ? "checked" : ""}`}>
+                  <input
+                    type="checkbox"
+                    aria-label={c}
+                    checked={constellations.has(c)}
+                    onChange={() => toggleConstellation(c)}
+                  />
+                  <span className="chip-label" style={{ textTransform: "capitalize" }}>{c}</span>
+                  <span className="chip-count">{constellationCounts[c]}</span>
+                </label>
+              ))}
+            </div>
+          </section>
+        )}
       </div>
       {searchResults.length > 0 && (
         <div className="panel results-list">

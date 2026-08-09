@@ -412,12 +412,18 @@ describe("App", () => {
     expect(screen.queryByText("ISS (ZARYA)")).not.toBeInTheDocument();
   });
 
-  it("shows per-filter counts in the checkbox labels", async () => {
+  it("shows per-filter counts in the filter chips", async () => {
     render(<App />);
     await act(async () => {});
-    expect(screen.getByText("LEO (2)")).toBeInTheDocument();
-    expect(screen.getByText("GEO (1)")).toBeInTheDocument();
-    expect(screen.getByText("starlink (1)")).toBeInTheDocument();
+    const leoChip = screen.getByRole("checkbox", { name: "LEO" }).closest("label")!;
+    expect(leoChip.textContent).toContain("LEO");
+    expect(leoChip.textContent).toContain("2");
+    const geoChip = screen.getByRole("checkbox", { name: "GEO" }).closest("label")!;
+    expect(geoChip.textContent).toContain("1");
+    expect(screen.queryByRole("checkbox", { name: "starlink" })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("radio", { name: "Filter by type" }));
+    const starlinkChip = screen.getByRole("checkbox", { name: "starlink" }).closest("label")!;
+    expect(starlinkChip.textContent).toContain("1");
   });
 
   it("toggles all regimes off and back on via the None/All shortcuts", async () => {
@@ -456,20 +462,18 @@ describe("App", () => {
     expect(screen.getByText(/Observer: 48\.86, -66\.22/)).toBeInTheDocument();
   });
 
-  it("disables the inactive filter group when the filter mode is switched", async () => {
+  it("hides the inactive filter section when the filter mode is switched", async () => {
     render(<App />);
     await act(async () => {});
-    const leo = screen.getByRole("checkbox", { name: "LEO" });
-    const starlink = screen.getByRole("checkbox", { name: "starlink" });
-    // orbit mode (default): regime active, constellation disabled
-    expect((leo as HTMLInputElement).disabled).toBe(false);
-    expect((starlink as HTMLInputElement).disabled).toBe(true);
+    // orbit mode (default): only the orbit section exists
+    expect(screen.getByRole("checkbox", { name: "LEO" })).toBeInTheDocument();
+    expect(screen.queryByRole("checkbox", { name: "starlink" })).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("radio", { name: "Filter by type" }));
-    expect((leo as HTMLInputElement).disabled).toBe(true);
-    expect((starlink as HTMLInputElement).disabled).toBe(false);
+    // type mode: orbit section disappears entirely, constellation appears
+    expect(screen.queryByRole("checkbox", { name: "LEO" })).not.toBeInTheDocument();
+    expect(screen.getByRole("checkbox", { name: "starlink" })).toBeInTheDocument();
     fireEvent.click(screen.getByRole("radio", { name: "Filter by orbit" }));
-    expect((leo as HTMLInputElement).disabled).toBe(false);
-    expect((starlink as HTMLInputElement).disabled).toBe(true);
+    expect(screen.getByRole("checkbox", { name: "LEO" })).toBeInTheDocument();
   });
 
   it("applies only the active filter dimension", async () => {

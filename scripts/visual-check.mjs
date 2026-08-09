@@ -118,8 +118,8 @@ if (!dot.error) {
 }
 
 // 5. Day/night toggle + search sanity (panel is open by default — do this BEFORE the gear test)
-const dn = page.locator('input[aria-label="Day/Night"]');
-if ((await dn.count()) > 0 && (await dn.isChecked())) {
+const dn = page.locator('button[aria-label="Day/Night"]');
+if ((await dn.count()) > 0 && (await dn.getAttribute("aria-pressed")) === "true") {
   await dn.click();
   await page.waitForTimeout(400);
   await shot(page, "06-daynight-off");
@@ -128,7 +128,7 @@ if ((await dn.count()) > 0 && (await dn.isChecked())) {
   await shot(page, "07-daynight-on");
   step("day/night toggle", true, "toggled off and on");
 } else {
-  step("day/night toggle", false, "checkbox not found or not checked");
+  step("day/night toggle", false, "day/night button not found or not pressed");
 }
 
 await page.locator('input[placeholder="Search satellites…"]').fill("ISS");
