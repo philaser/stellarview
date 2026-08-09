@@ -30,17 +30,16 @@ const ORBIT_ALTITUDE = 0.07;
 const ORBIT_LINE_WIDTH = 4;
 const ORBIT_PHASE_STEP = 0.02;
 
-// Selected-satellite highlight: a pulsing mint-green dot plus a soft radial-gradient halo sprite
-// that breathes with the same ~3.8s phase. Both are round radial-gradient sprites (never the
-// square quads THREE.Points renders) and are sized in *screen pixels* via the camera projection,
-// so the selection reads as a scaled-up version of itself at any zoom instead of a broken box.
-const HIGHLIGHT_PIXEL_SIZE = 14;
-const GLOW_PIXEL_SIZE = 44;
+// Selected-satellite highlight: a pulsing mint-green dot plus a soft radial-gradient halo sprite.
+// Both are round radial-gradient sprites (never the square quads THREE.Points renders) and scale
+// WITH the globe like ordinary dots — but at ~1.6x their size — with a small pixel floor so the
+// marker stays findable when zoomed far out instead of either vanishing or ballooning into a blob.
+const SELECTION_FACTOR = 1.6;  // selection dot ~1.6x the base dot size
+const SELECTION_MIN_PX = 7;    // never smaller than ~7px on screen
+const GLOW_HALO_FACTOR = 3;    // halo is 3x the dot, so it breathes proportionally
 const GLOW_TEX_SIZE = 128;
 const PULSE_AMPLITUDE = 0.55;
 const PULSE_PERIOD_MS = 600; // ~3.8s pulse
-const GLOW_PULSE_MEAN = 1.2;
-const GLOW_PULSE_AMPLITUDE = 0.5;
 
 /** Dot size (globe-radius units) for a camera at `distance` from a reference distance `refDist`. */
 export function dotSizeFor(distance: number, refDist: number, base: number): number {
@@ -217,7 +216,7 @@ export default function GlobeView({ positions, satNames, selectedOrbit, selected
 
     // All satellites render as one THREE.Points layer (single draw call); the selection is a pair
     // of round radial-gradient sprites (dot + halo) that never look like the square quads
-    // THREE.Points renders, sized in screen pixels so the selection reads the same at every zoom.
+    // THREE.Points renders, scaled with the globe and floored to a minimum pixel size.
     const basePoints = buildPoints(positions.length, BASE_SIZE);
     baseRef.current = basePoints;
 
@@ -423,16 +422,17 @@ export default function GlobeView({ positions, satNames, selectedOrbit, selected
         const hi = highlightIdxRef.current;
         const dot = highlightDotRef.current;
         if (hi >= 0 && dot?.visible) {
-          // pulsing pixel-constant dot + glow halo track the (lerped) selected satellite; both
-          // breathe with the same phase so the selection reads as a strong pulsing blob
+          // The marker scales with the globe (like the base dots, ~1.6x their size) but never
+          // shrinks below a small pixel floor at far zoom; the halo breathes proportionally.
           const pulse = Math.sin(now / PULSE_PERIOD_MS);
-          const dScale = pxScale(HIGHLIGHT_PIXEL_SIZE * (1 + PULSE_AMPLITUDE * pulse));
+          const dotWorld = dotSizeRef.current * SELECTION_FACTOR * (1 + PULSE_AMPLITUDE * pulse);
+          const dScale = Math.max(dotWorld, pxScale(SELECTION_MIN_PX));
           dot.position.set(lerpOutRef.current[hi * 3], lerpOutRef.current[hi * 3 + 1], lerpOutRef.current[hi * 3 + 2]);
           dot.scale.set(dScale, dScale, 1);
           const glow = glowSpriteRef.current;
           if (glow) {
             glow.position.set(lerpOutRef.current[hi * 3], lerpOutRef.current[hi * 3 + 1], lerpOutRef.current[hi * 3 + 2]);
-            const gScale = pxScale(GLOW_PIXEL_SIZE * (GLOW_PULSE_MEAN + GLOW_PULSE_AMPLITUDE * pulse));
+            const gScale = dScale * GLOW_HALO_FACTOR;
             glow.scale.set(gScale, gScale, 1);
           }
         }

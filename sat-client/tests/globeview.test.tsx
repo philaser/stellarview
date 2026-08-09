@@ -690,9 +690,10 @@ describe("GlobeView", () => {
   });
 
   it("pulses the round highlight sprite and follows the selected satellite with the glow halo", () => {
-    render(
-      <GlobeView positions={positions} satNames={satNames} selectedOrbit={null} selectedCatnr={1} onSelect={() => {}} />
-    );
+    const { mapEl } = renderGlobe({ selectedCatnr: 1 });
+    // zoom in so the world-scaled marker outgrows its pixel floor (pulse visible in the scale)
+    cameraState.z = 3;
+    controlsListeners.change?.();
     const dot = threeLineMocks.createdSprites[0];
     const glow = threeLineMocks.createdSprites[1];
     expect(dot.visible).toBe(true);
@@ -719,29 +720,30 @@ describe("GlobeView", () => {
     expect(dot.position.y).toBeCloseTo(10, 5);
     expect(glow.position.x).toBeCloseTo(20, 5);
     expect(glow.position.y).toBeCloseTo(10, 5);
+    mapEl; // referenced to keep renderGlobe's container rect active
   });
 
-  it("resizes dots when the camera zooms, keeping the highlight a constant pixel size", () => {
-    render(
-      <GlobeView positions={positions} satNames={satNames} selectedOrbit={null} selectedCatnr={1} onSelect={() => {}} />
-    );
+  it("floors the highlight to a minimum pixel size at far zoom and scales it with the globe up close", () => {
+    const { mapEl } = renderGlobe({ selectedCatnr: 1 });
     const base = createdPoints.find((p) => p.geometry.attributes.position.count === 2)!;
     expect(base.material.size).toBe(0.02);
-    // the highlight dot is pixel-constant: its world scale shrinks with camera distance
     const dot = threeLineMocks.createdSprites[0];
     expect(dot.visible).toBe(true);
-    rafCallbacks.shift()!(1000);
-    const scaleAt10 = dot.scale.x;
-    expect(scaleAt10).toBeGreaterThan(0);
-    // zoom in to half the reference distance and fire the OrbitControls 'change' event
-    cameraState.z = 5;
+    const frame = (now: number) => rafCallbacks.shift()!(now);
+    const floorAt = (z: number) => (7 / 600) * (2 * Math.tan((60 * Math.PI) / 360) * z);
+
+    // far zoom (z=30): the world-scaled dot would be ~1px, so the pixel floor keeps it ~7px
+    cameraState.z = 30;
     controlsListeners.change?.();
-    expect(base.material.size).toBe(dotSizeFor(5, 10, 0.02));
-    expect(base.material.size).toBeGreaterThan(0.02);
-    // next frame at the same pulse phase (1000 + 2π*600ms): the dot's world scale halves so its
-    // on-screen pixels stay the same
-    rafCallbacks.shift()!(1000 + 2 * Math.PI * 600);
-    expect(dot.scale.x).toBeCloseTo(scaleAt10 * 0.5, 5);
+    frame(1000);
+    expect(dot.scale.x).toBeCloseTo(floorAt(30), 4);
+
+    // close zoom (z=2, same pulse phase): the dot now outgrows the floor and scales with the globe
+    cameraState.z = 2;
+    controlsListeners.change?.();
+    frame(1000 + 2 * Math.PI * 600);
+    expect(dot.scale.x).toBeGreaterThan(floorAt(2));
+    mapEl; // referenced to keep renderGlobe's container rect active
   });
 
   it("glides base dots, the highlight and the label between snapshots via the rAF loop", () => {
