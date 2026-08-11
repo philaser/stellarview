@@ -1,9 +1,15 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, fireEvent } from "@testing-library/react";
-import GlobeView, { findNearest, dotSizeFor, lerpWorldPositions, orbitGradientColors } from "../src/GlobeView";
+import GlobeView, {
+  cameraFacingBrightness,
+  findNearest,
+  dotSizeFor,
+  lerpWorldPositions,
+  orbitGradientColors,
+} from "../src/GlobeView";
 import { threeLineMocks } from "./setup";
 
-const { createdPoints, sceneAdd, controlsListeners, cameraState, labelsDataMock, labelTextAccessor, rafCallbacks } =
+const { createdPoints, sceneAdd, controlsListeners, cameraState, labelsDataMock, labelTextAccessor, pointOfViewMock, rafCallbacks } =
   vi.hoisted(() => ({
     createdPoints: [] as any[],
     sceneAdd: vi.fn(),
@@ -12,6 +18,7 @@ const { createdPoints, sceneAdd, controlsListeners, cameraState, labelsDataMock,
     cameraState: { x: 0, y: 0, z: 10 },
     labelsDataMock: vi.fn(),
     labelTextAccessor: { current: null as ((d: unknown) => string) | null },
+    pointOfViewMock: vi.fn(),
     // captured rAF callbacks so tests can drive the interpolation loop frame-by-frame
     rafCallbacks: [] as FrameRequestCallback[],
   }));
@@ -133,16 +140,29 @@ vi.mock("globe.gl", () => ({
     backgroundColor() {
       return this;
     }
+    backgroundImageUrl() {
+      return this;
+    }
+    globeImageUrl() {
+      return this;
+    }
+    bumpImageUrl() {
+      return this;
+    }
     showAtmosphere() {
       return this;
     }
     atmosphereColor() {
       return this;
     }
+    atmosphereAltitude() {
+      return this;
+    }
     showGraticules() {
       return this;
     }
-    pointOfView() {
+    pointOfView(...args: unknown[]) {
+      pointOfViewMock(...args);
       return this;
     }
     _destructor() {}
@@ -390,6 +410,20 @@ describe("dotSizeFor", () => {
   });
 });
 
+describe("cameraFacingBrightness", () => {
+  const camera = { x: 0, y: 0, z: 10 };
+
+  it("keeps near-side markers brighter than limb and rear-side markers", () => {
+    const near = cameraFacingBrightness({ x: 0, y: 0, z: 1 }, camera);
+    const limb = cameraFacingBrightness({ x: 1, y: 0, z: 0 }, camera);
+    const rear = cameraFacingBrightness({ x: 0, y: 0, z: -1 }, camera);
+    expect(near).toBe(1);
+    expect(limb).toBeGreaterThan(rear);
+    expect(limb).toBeLessThan(near);
+    expect(rear).toBeCloseTo(0.45);
+  });
+});
+
 describe("orbitGradientColors", () => {
   const peakIndexOf = (colors: Float32Array) => {
     let best = 0;
@@ -441,6 +475,7 @@ describe("GlobeView", () => {
     createdPoints.length = 0;
     sceneAdd.mockClear();
     labelsDataMock.mockClear();
+    pointOfViewMock.mockClear();
     labelTextAccessor.current = null;
     for (const k of Object.keys(config)) delete config[k];
     for (const k of Object.keys(controlsListeners)) delete controlsListeners[k];
@@ -519,7 +554,7 @@ describe("GlobeView", () => {
     );
     const base = createdPoints.find((p) => p.geometry.attributes.position.count === 2);
     expect(base).toBeDefined();
-    expect(base.material.size).toBe(2); // 0.02 globe radii x 100-unit globe radius
+    expect(base.material.size).toBeCloseTo(1.7); // 0.017 globe radii x 100-unit globe radius
     const pos = base.geometry.attributes.position.array as number[];
     expect(pos[2]).toBeCloseTo(420 / 6371, 3);
     expect(pos[5]).toBeCloseTo(0.35, 5);
@@ -535,6 +570,23 @@ describe("GlobeView", () => {
     // Sat 1 projects to (640, 390) in the 800x600 test rect.
     fireEvent.click(mapEl, { clientX: 640, clientY: 390 });
     expect(onSelect).toHaveBeenCalledWith(2);
+  });
+
+  it("focuses and follows a satellite with distinct camera transitions", () => {
+    const { rerender } = renderGlobe({ focus: { catnr: 1, ts: 1 } });
+    expect(pointOfViewMock).toHaveBeenCalledWith({ lat: 10, lng: 20, altitude: 2.15 }, 850);
+
+    rerender(
+      <GlobeView
+        positions={positions}
+        satNames={satNames}
+        selectedOrbit={null}
+        selectedCatnr={1}
+        followCatnr={1}
+        onSelect={() => {}}
+      />
+    );
+    expect(pointOfViewMock).toHaveBeenCalledWith({ lat: 10, lng: 20, altitude: 1.9 }, 650);
   });
 
   it("does not select on a click far from any projected dot", () => {
@@ -729,7 +781,7 @@ describe("GlobeView", () => {
   it("floors the highlight to a minimum pixel size at far zoom and scales it with the globe up close", () => {
     const { mapEl } = renderGlobe({ selectedCatnr: 1 });
     const base = createdPoints.find((p) => p.geometry.attributes.position.count === 2)!;
-    expect(base.material.size).toBe(2); // 0.02 globe radii x 100-unit globe radius
+    expect(base.material.size).toBeCloseTo(1.7); // 0.017 globe radii x 100-unit globe radius
     const dot = threeLineMocks.createdSprites[0];
     expect(dot.visible).toBe(true);
     const frame = (now: number) => rafCallbacks.shift()!(now);
@@ -746,7 +798,7 @@ describe("GlobeView", () => {
     cameraState.z = 2;
     controlsListeners.change?.();
     frame(1000 + 2 * Math.PI * 600);
-    expect(dot.scale.x).toBeCloseTo(dotSizeFor(2, 10, 0.02) * 100 * 1.3, 2);
+    expect(dot.scale.x).toBeCloseTo(dotSizeFor(2, 10, 0.017) * 100 * 1.3, 2);
     mapEl; // referenced to keep renderGlobe's container rect active
   });
 

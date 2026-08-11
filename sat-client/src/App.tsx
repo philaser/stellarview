@@ -287,7 +287,7 @@ export default function App() {
 
   const catalogState = catalog.error
     ? sats.length > 0 ? "STALE" : "OFFLINE"
-    : catalog.loading ? "SYNCING" : "FRESH";
+    : catalog.loading ? "SYNCING" : catalog.source === "disk" ? "CACHED" : "FRESH";
   const utcTime = simulation.time.toLocaleTimeString("en-GB", {
     hour: "2-digit",
     minute: "2-digit",
@@ -385,7 +385,7 @@ export default function App() {
           <span>{simulation.mode === "live" ? "Pause" : "Resume"}</span>
         </button>
         <button
-          className="dock-item icon-button"
+          className="dock-item icon-button reset-button"
           aria-label="Return to live time"
           title="Return to live time"
           onClick={simulation.reset}

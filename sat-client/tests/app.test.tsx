@@ -108,8 +108,12 @@ vi.mock("globe.gl", () => ({
     labelAltitude() { return this; }
     labelResolution() { return this; }
     backgroundColor() { return this; }
+    backgroundImageUrl() { return this; }
+    globeImageUrl() { return this; }
+    bumpImageUrl() { return this; }
     showAtmosphere() { return this; }
     atmosphereColor() { return this; }
+    atmosphereAltitude() { return this; }
     showGraticules() { return this; }
     pointOfView() { return this; }
     _destructor() {}
@@ -479,7 +483,7 @@ describe("App", () => {
     await act(async () => {});
     fireEvent.click(screen.getAllByText(/ISS \(ZARYA\)/)[0]); // results list item
     await act(async () => {});
-    expect(screen.getByText(/ISS \(ZARYA\)/)).toBeInTheDocument();
+    expect(screen.getAllByText(/ISS \(ZARYA\)/).length).toBeGreaterThanOrEqual(2);
   });
 
   it("wraps the observer longitude into ±180", async () => {

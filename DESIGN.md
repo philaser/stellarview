@@ -16,12 +16,12 @@ Immersive operational visualization. The globe is the product surface; interface
 
 ### Color
 
-- `--space`: `#050816`
-- `--surface`: `rgba(24, 29, 40, .72)`
-- `--surface-strong`: `rgba(17, 22, 32, .9)`
+- `--space`: `#05070c`
+- `--surface`: `rgba(13, 18, 28, .88)`
+- `--surface-strong`: `rgba(18, 24, 36, .96)`
 - `--surface-hover`: `rgba(255, 255, 255, .1)`
-- `--border`: `rgba(148, 163, 184, .16)`
-- `--text`: `#f1f5f9`
+- `--border`: `rgba(148, 163, 184, .2)`
+- `--text`: `#eef4fc`
 - `--text-secondary`: `#cbd5e1`
 - `--text-muted`: `#7f8ca3`
 - `--accent`: `#3b82f6`
@@ -48,7 +48,7 @@ Satellite category colors are defined in `sat-client/src/sat/catalog.ts` and mus
 - Base spacing: 4px.
 - Controls: 40px minimum desktop, 44px minimum touch.
 - Compact padding: 8px; panel padding: 16px.
-- Control radius: 12px; panel radius: 20px; pills: 999px.
+- Control radius: 10px; panel radius: 16px; pills are reserved for compact status tags.
 - Desktop chrome inset: 14px; mobile inset: 10px plus safe-area values.
 
 ### Border and elevation
@@ -64,7 +64,7 @@ Satellite category colors are defined in `sat-client/src/sat/catalog.ts` and mus
 - Panel: 240ms cubic-bezier(.2,.8,.2,1).
 - Drawer/camera: 320-600ms depending on travel distance.
 - Satellite snapshots interpolate continuously over their update interval.
-- `prefers-reduced-motion` disables pulsing, orbit-flow animation, spring hover, and nonessential camera tweening.
+- `prefers-reduced-motion` disables selection pulsing, orbit-flow animation, spring hover, and camera tweening.
 
 ### Icons
 
@@ -72,9 +72,16 @@ Use `@tabler/icons-react` outline icons at 18-20px and 1.7-2px stroke. Every ico
 
 ### Breakpoints
 
-- Mobile: below 640px.
-- Compact/tablet: 640-959px.
-- Desktop: 960px and above.
+- Mobile: below 720px.
+- Compact/tablet: 720-899px.
+- Desktop: 900px and above.
+
+### Globe environment
+
+- Use the bundled `three-globe` dark Earth and topology assets under `sat-client/public/globe/`; do not rely on a runtime image CDN.
+- Country boundaries come from the bundled Natural Earth dataset in the same folder.
+- The Earth texture, atmospheric rim, and directional lighting must preserve land/ocean depth without competing with tracked objects.
+- Ambient satellites use fixed-pixel points and camera-facing attenuation. Selection alone receives a green marker, anchored label, violet orbit, and camera focus.
 
 ## Core components
 

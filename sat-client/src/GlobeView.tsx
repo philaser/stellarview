@@ -6,8 +6,9 @@ import { LineGeometry } from "three/examples/jsm/lines/LineGeometry.js";
 import { LineMaterial } from "three/examples/jsm/lines/LineMaterial.js";
 import type { SatDot } from "./MapView";
 
-const COUNTRIES_URL =
-  "https://raw.githubusercontent.com/vasturiano/globe.gl/master/example/datasets/ne_110m_admin_0_countries.geojson";
+const COUNTRIES_URL = "/globe/countries.geojson";
+const EARTH_TEXTURE_URL = "/globe/earth-dark.jpg";
+const EARTH_BUMP_URL = "/globe/earth-topology.png";
 
 // Cap visual altitude so GEO/MEO shells hug the globe instead of rendering as streaks from inside the camera.
 const ALT_CAP = 0.35;
@@ -17,7 +18,7 @@ const altR = (altKm: number) => Math.min(altKm / 6371, ALT_CAP);
 // default camera, up to a visible 9% of the globe radius). This globe.gl build uses a globe radius
 // of ~100 three.js units, so every size below is multiplied by the actual radius before being
 // applied to materials/sprites (see `globeRadius` in the component).
-const BASE_SIZE = 0.02;
+const BASE_SIZE = 0.017;
 const MIN_DOT_SIZE = 0.01;
 const MAX_DOT_SIZE = 0.09;
 const SIZE_CURVE = 0.35;
@@ -84,6 +85,19 @@ export function orbitGradientColors(vertexCount: number, phase: number): Float32
   return colors;
 }
 
+/** Dims markers around and behind the globe limb so the orbital shell retains front/back depth. */
+export function cameraFacingBrightness(
+  point: { x: number; y: number; z: number },
+  camera: { x: number; y: number; z: number }
+): number {
+  const pointLength = Math.hypot(point.x, point.y, point.z) || 1;
+  const cameraLength = Math.hypot(camera.x, camera.y, camera.z) || 1;
+  const facing = (point.x * camera.x + point.y * camera.y + point.z * camera.z) / (pointLength * cameraLength);
+  const normalized = Math.min(1, Math.max(0, (facing + 0.25) / 0.8));
+  const smooth = normalized * normalized * (3 - 2 * normalized);
+  return 0.45 + 0.55 * smooth;
+}
+
 // Screen-space picking radii (px) around the cursor; the nearest projected dot wins.
 const HOVER_THRESHOLD = 8;
 const CLICK_THRESHOLD = 12;
@@ -96,7 +110,7 @@ const DRAG_TOLERANCE = 5;
  *  the terminator shows; without, ambient-only so the whole globe reads uniformly lit. */
 export function globeLights(showNight: boolean): THREE.Light[] {
   return showNight
-    ? [new THREE.AmbientLight(0xcccccc, Math.PI), new THREE.DirectionalLight(0xffffff, 0.6 * Math.PI)]
+    ? [new THREE.AmbientLight(0xb8c5da, 1.2 * Math.PI), new THREE.DirectionalLight(0xffffff, 0.65 * Math.PI)]
     : [new THREE.AmbientLight(0xffffff, 2 * Math.PI)];
 }
 
@@ -154,6 +168,7 @@ function buildPoints(capacity: number, size: number, sizeAttenuation = true): TH
     vertexColors: true,
     sizeAttenuation,
     transparent: true,
+    opacity: 0.82,
   }));
 }
 
@@ -172,6 +187,7 @@ export default function GlobeView({
   const globeRef = useRef<InstanceType<typeof Globe> | null>(null);
   const baseRef = useRef<THREE.Points | null>(null);
   const highlightDotRef = useRef<THREE.Sprite | null>(null);
+  const selectedLabelRef = useRef<HTMLDivElement>(null);
   const orbitLineRef = useRef<Line2 | null>(null);
   const glowSpriteRef = useRef<THREE.Sprite | null>(null);
   const orbitPointCountRef = useRef(0);
@@ -200,6 +216,8 @@ export default function GlobeView({
   const hasSnapshotRef = useRef(false);
   const labelIdxRef = useRef(-1);
   const highlightIdxRef = useRef(-1);
+  const selectedIdxRef = useRef(-1);
+  const reducedMotionRef = useRef(window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false);
   // Single mutable label entry: position ticks mutate it in place so three-globe re-reads the
   // accessors next frame instead of re-creating the label layer (which would flicker every tick).
   const labelEntryRef = useRef<{ lat: number; lng: number; catnr: number; altKm: number } | null>(null);
@@ -216,10 +234,13 @@ export default function GlobeView({
     const globeRadius = (globe as { getGlobeRadius?: () => number }).getGlobeRadius?.() ?? 100;
     globe
       .backgroundColor("#050816")
+      .globeImageUrl(EARTH_TEXTURE_URL)
+      .bumpImageUrl(EARTH_BUMP_URL)
       .showAtmosphere(true)
-      .atmosphereColor("#3a4a6b")
+      .atmosphereColor("#5f86c8")
+      .atmosphereAltitude(0.18)
       .showGraticules(false)
-      .pointOfView({ lat: 20, lng: 0, altitude: 3.2 });
+      .pointOfView({ lat: 20, lng: 0, altitude: 2.75 });
 
     globe
       .labelsData([])
@@ -234,7 +255,7 @@ export default function GlobeView({
     // All satellites render as one THREE.Points layer (single draw call); the selection is a pair
     // of round radial-gradient sprites (dot + halo) that never look like the square quads
     // THREE.Points renders, scaled with the globe and floored to a minimum pixel size.
-    const basePoints = buildPoints(positions.length, BASE_SIZE * globeRadius);
+    const basePoints = buildPoints(positions.length, BASE_SIZE * globeRadius, false);
     baseRef.current = basePoints;
 
     // Trajectory: a fat gradient line looping the globe. Positions are written when an orbit is
@@ -380,9 +401,10 @@ export default function GlobeView({
         return;
       }
       setHoveredCatnr(catnr);
+      const rect = container.getBoundingClientRect();
       setTooltip({
-        x: hit.px + TOOLTIP_OFFSET,
-        y: hit.py + TOOLTIP_OFFSET,
+        x: Math.min(hit.px + TOOLTIP_OFFSET, Math.max(8, rect.width - 230)),
+        y: Math.min(hit.py + TOOLTIP_OFFSET, Math.max(8, rect.height - 44)),
         text: `${satNamesRef.current[catnr] ?? "Unknown"} · ${catnr}`,
       });
       container.style.cursor = "pointer";
@@ -409,9 +431,9 @@ export default function GlobeView({
       .then((geo: { features: object[] }) => {
         globe
           .polygonsData(geo.features)
-          .polygonCapColor(() => "rgba(30, 41, 59, 0.85)")
-          .polygonSideColor(() => "rgba(56, 89, 138, 0.35)")
-          .polygonStrokeColor(() => "rgba(96, 165, 250, 0.25)")
+          .polygonCapColor(() => "rgba(26, 38, 57, 0.58)")
+          .polygonSideColor(() => "rgba(56, 89, 138, 0.22)")
+          .polygonStrokeColor(() => "rgba(114, 157, 214, 0.34)")
           .polygonAltitude(0.002);
       })
       .catch(() => {
@@ -442,7 +464,7 @@ export default function GlobeView({
           // The marker scales with the globe (like the base dots, ~1.3x their size) but never
           // shrinks below a small pixel floor at far zoom; the halo is a fixed 3x the dot. The
           // pulse breathes the OPACITY so the selection reads as alive without ballooning in size.
-          const pulse = Math.sin(now / PULSE_PERIOD_MS);
+          const pulse = reducedMotionRef.current ? 0 : Math.sin(now / PULSE_PERIOD_MS);
           const dotScale = Math.max(
             dotSizeRef.current * SELECTION_FACTOR,
             pxScale(SELECTION_MIN_PX)
@@ -459,6 +481,27 @@ export default function GlobeView({
           }
         }
 
+        const selectedLabel = selectedLabelRef.current;
+        const selectedIndex = selectedIdxRef.current;
+        if (selectedLabel && selectedIndex >= 0) {
+          tmpVec
+            .set(
+              lerpOutRef.current[selectedIndex * 3],
+              lerpOutRef.current[selectedIndex * 3 + 1],
+              lerpOutRef.current[selectedIndex * 3 + 2]
+            )
+            .project(globe.camera());
+          if (tmpVec.z <= 1) {
+            selectedLabel.style.display = "block";
+            selectedLabel.style.left = `${(tmpVec.x * 0.5 + 0.5) * container.clientWidth}px`;
+            selectedLabel.style.top = `${(-tmpVec.y * 0.5 + 0.5) * container.clientHeight}px`;
+          } else {
+            selectedLabel.style.display = "none";
+          }
+        } else if (selectedLabel) {
+          selectedLabel.style.display = "none";
+        }
+
         const entry = labelEntryRef.current;
         const li = labelIdxRef.current;
         if (entry && li >= 0) {
@@ -470,7 +513,7 @@ export default function GlobeView({
       }
       // advance the orbit gradient's bright peak so it flows along the ring (direction cue)
       const orbitLine = orbitLineRef.current;
-      if (orbitLine?.visible) {
+      if (orbitLine?.visible && !reducedMotionRef.current) {
         orbitPhaseRef.current += ORBIT_PHASE_STEP;
         orbitLine.geometry.setColors(orbitGradientColors(orbitPointCountRef.current, orbitPhaseRef.current));
       }
@@ -520,14 +563,20 @@ export default function GlobeView({
     const globe = globeRef.current;
     if (!globe || !focus) return;
     const satellite = positionsRef.current.find((position) => position.catnr === focus.catnr);
-    if (satellite) globe.pointOfView({ lat: satellite.lat, lng: satellite.lon, altitude: 1.35 }, 850);
+    if (satellite) globe.pointOfView(
+      { lat: satellite.lat, lng: satellite.lon, altitude: 2.15 },
+      reducedMotionRef.current ? 0 : 850
+    );
   }, [focus]);
 
   useEffect(() => {
     const globe = globeRef.current;
     if (!globe || followCatnr == null) return;
     const satellite = positions.find((position) => position.catnr === followCatnr);
-    if (satellite) globe.pointOfView({ lat: satellite.lat, lng: satellite.lon, altitude: 1.25 }, 650);
+    if (satellite) globe.pointOfView(
+      { lat: satellite.lat, lng: satellite.lon, altitude: 1.9 },
+      reducedMotionRef.current ? 0 : 650
+    );
   }, [followCatnr, positions]);
 
   useEffect(() => {
@@ -558,8 +607,9 @@ export default function GlobeView({
       base.material = new THREE.PointsMaterial({
         size: dotSizeRef.current,
         vertexColors: true,
-        sizeAttenuation: true,
+        sizeAttenuation: false,
         transparent: true,
+        opacity: 0.82,
       });
     }
 
@@ -584,6 +634,7 @@ export default function GlobeView({
     const posAttr = base.geometry.attributes.position as THREE.BufferAttribute;
     const colorAttr = base.geometry.attributes.color as THREE.BufferAttribute;
     const tmpColor = new THREE.Color();
+    const cameraPosition = globe.camera().position;
     positions.forEach((p, i) => {
       const c = globe.getCoords(p.lat, p.lon, altR(p.altKm));
       cur[i * 3] = c.x;
@@ -593,7 +644,8 @@ export default function GlobeView({
       lcur[i * 2 + 1] = p.lon;
       posAttr.setXYZ(i, c.x, c.y, c.z);
       tmpColor.set(p.color ?? "#e5e7eb");
-      colorAttr.setXYZ(i, tmpColor.r, tmpColor.g, tmpColor.b);
+      const brightness = cameraFacingBrightness(c, cameraPosition);
+      colorAttr.setXYZ(i, tmpColor.r * brightness, tmpColor.g * brightness, tmpColor.b * brightness);
     });
     // First snapshot (or resized catalog): hold at the current position instead of gliding from nowhere.
     if (!hadPrev) {
@@ -631,6 +683,9 @@ export default function GlobeView({
     if (!dot) return;
     const shown = hoveredCatnr ?? selectedCatnr;
     const idx = shown != null ? positions.findIndex((p) => p.catnr === shown) : -1;
+    selectedIdxRef.current = selectedCatnr != null
+      ? positions.findIndex((position) => position.catnr === selectedCatnr)
+      : -1;
     highlightIdxRef.current = idx;
     if (idx >= 0) {
       const cur = worldCurRef.current;
@@ -678,6 +733,7 @@ export default function GlobeView({
         pos[i * 3 + 2] = c.z;
       });
       orbitLine.geometry.setPositions(pos);
+      orbitLine.geometry.setColors(orbitGradientColors(n, 0));
       orbitPointCountRef.current = n;
       orbitPhaseRef.current = 0;
       orbitLine.visible = true;
@@ -695,6 +751,9 @@ export default function GlobeView({
         style={tooltip ? { left: tooltip.x, top: tooltip.y } : undefined}
       >
         {tooltip?.text}
+      </div>
+      <div ref={selectedLabelRef} className="selected-map-label" aria-hidden="true">
+        {selectedCatnr == null ? "" : satNames[selectedCatnr] ?? selectedCatnr}
       </div>
     </div>
   );

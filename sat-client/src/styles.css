@@ -173,7 +173,13 @@ input:focus-visible {
 }
 
 .state-syncing strong,
-.state-stale strong { color: #ffd886; }
+.state-stale strong,
+.state-cached strong { color: #ffd886; }
+
+.state-cached .live-dot {
+  background: var(--warning);
+  box-shadow: 0 0 0 4px rgba(245, 189, 79, 0.1), 0 0 12px rgba(245, 189, 79, 0.5);
+}
 
 .state-offline strong { color: #ff9aa5; }
 .state-offline .live-dot {
@@ -847,11 +853,34 @@ input:focus-visible {
   font-size: 10px;
   opacity: 0;
   pointer-events: none;
-  white-space: nowrap;
+  overflow-wrap: anywhere;
+  white-space: normal;
   transition: opacity 90ms ease, transform 90ms ease;
 }
 
 .globe-tooltip.visible { opacity: 1; transform: translateY(0); }
+
+.selected-map-label {
+  position: absolute;
+  z-index: 48;
+  display: none;
+  max-width: 180px;
+  padding: 5px 8px;
+  transform: translate(10px, -50%);
+  overflow: hidden;
+  border: 1px solid rgba(34, 255, 136, 0.38);
+  border-radius: 7px;
+  background: rgba(7, 14, 19, 0.88);
+  box-shadow: 0 0 16px rgba(34, 255, 136, 0.16);
+  color: #d9ffe9;
+  font-family: "SFMono-Regular", Consolas, monospace;
+  font-size: 10px;
+  font-weight: 650;
+  letter-spacing: 0.02em;
+  pointer-events: none;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 
 .maplibregl-ctrl-group {
   overflow: hidden;
@@ -878,7 +907,7 @@ input:focus-visible {
 }
 
 @media (max-width: 720px) {
-  .app { min-height: 440px; }
+  .app { min-height: 0; }
   .mission-hud { right: 10px; justify-content: space-between; }
   .brand-lockup { padding-right: 9px; }
   .brand-lockup strong { font-size: 10px; }
@@ -898,15 +927,14 @@ input:focus-visible {
     padding: 6px;
     border-radius: 13px;
   }
-  .dock-item { width: 38px; height: 38px; min-width: 38px; padding: 0; }
+  .dock-item { width: 42px; height: 42px; min-width: 42px; padding: 0; }
   .simulation-button span,
   .dock-divider { display: none; }
   .dock-search-wrap,
-  .dock-search-wrap:focus-within { width: min(176px, calc(100vw - 208px)); height: 38px; }
+  .dock-search-wrap:focus-within { width: min(176px, calc(100vw - 232px)); height: 42px; }
   .dock-search { font-size: 11px; }
-  .dock-search::placeholder { color: transparent; }
   .controls {
-    bottom: 60px;
+    bottom: calc(60px + env(safe-area-inset-bottom));
     width: calc(100vw - 16px);
     max-height: min(58vh, 460px);
     overflow-y: auto;
@@ -916,7 +944,7 @@ input:focus-visible {
   .results-list {
     top: auto;
     right: 8px;
-    bottom: 60px;
+    bottom: calc(60px + env(safe-area-inset-bottom));
     left: 8px;
     width: auto;
     max-width: none;
@@ -931,11 +959,11 @@ input:focus-visible {
     to { opacity: 1; transform: translateY(0); }
   }
   .observer-label,
-  .count-pill { bottom: 58px; min-height: 29px; padding: 6px 8px; }
+  .count-pill { bottom: calc(58px + env(safe-area-inset-bottom)); min-height: 29px; padding: 6px 8px; }
   .observer-label { left: 8px; }
   .observer-label small { display: none; }
   .count-pill { right: 8px; }
-  .banner { bottom: 108px; }
+  .banner { top: 110px; bottom: auto; }
 }
 
 @media (max-width: 430px) {
@@ -944,8 +972,9 @@ input:focus-visible {
   .brand-mark { background: rgba(13, 18, 28, 0.85); }
   .brand-lockup > span:last-child { display: none; }
   .catalog-state { margin-left: auto; }
+  .reset-button { display: none; }
   .dock-search-wrap,
-  .dock-search-wrap:focus-within { width: min(126px, calc(100vw - 208px)); padding-left: 8px; }
+  .dock-search-wrap:focus-within { width: min(126px, calc(100vw - 202px)); padding-left: 8px; }
   .search-clear { display: none; }
   .observer-label { display: none; }
   .count-pill { left: 8px; right: auto; }
