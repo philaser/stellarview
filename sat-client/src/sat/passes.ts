@@ -38,9 +38,10 @@ export function nextPasses(
   observer: ObserverPoint,
   hours = 48,
   stepS = 60,
-  minElevationDeg = 5
+  minElevationDeg = 5,
+  start = new Date()
 ): Pass[] {
-  const now = Date.now();
+  const now = start.getTime();
   const endMs = now + hours * 3600_000;
   const steps = Math.ceil((endMs - now) / (stepS * 1000));
 

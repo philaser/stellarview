@@ -267,8 +267,13 @@ describe("GET /api/tle", () => {
     const res1 = await request(app).get("/api/tle?catnr=25544,20580");
     expect(res1.status).toBe(200);
     expect(res1.text).toContain("ISS (ZARYA)");
+    expect(res1.headers["x-tle-source"]).toBe("upstream");
+    expect(res1.headers["x-tle-cache"]).toBe("miss");
+    expect(Number(res1.headers["x-tle-fetched-at"])).toBeGreaterThan(0);
     const res2 = await request(app).get("/api/tle?catnr=25544,20580");
     expect(res2.status).toBe(200);
+    expect(res2.headers["x-tle-source"]).toBe("upstream");
+    expect(res2.headers["x-tle-cache"]).toBe("hit");
     expect(fetch).toHaveBeenCalledTimes(2);
     expect(String(vi.mocked(fetch).mock.calls[0][0])).toContain("CATNR=25544");
     expect(String(vi.mocked(fetch).mock.calls[1][0])).toContain("CATNR=20580");
@@ -324,6 +329,7 @@ describe("GET /api/tle", () => {
     );
     const res2 = await request(app).get("/api/tle?group=active");
     expect(res2.status).toBe(200);
+    expect(res2.headers["x-tle-cache"]).toBe("hit");
     expect(fetch).toHaveBeenCalledTimes(1); // cached
     vi.unstubAllGlobals();
   });
@@ -336,6 +342,9 @@ describe("GET /api/tle", () => {
     const res = await request(app).get("/api/tle?group=active");
     expect(res.status).toBe(200);
     expect(res.text).toContain("ISS (ZARYA)");
+    expect(res.headers["x-tle-source"]).toBe("disk");
+    expect(res.headers["x-tle-cache"]).toBe("hit");
+    expect(Number(res.headers["x-tle-fetched-at"])).toBeGreaterThan(0);
     expect(fetch).not.toHaveBeenCalled();
     vi.unstubAllGlobals();
   });

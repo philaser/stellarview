@@ -44,12 +44,20 @@ interface LastGoodEntry {
   expiresAt: number;
 }
 
+interface TleCacheEntry {
+  text: string;
+  fetchedAt: number;
+  source: "upstream" | "disk";
+}
+
 // Prime the in-memory TLE cache from the last-good disk copy so restarts
 // survive CelesTrak throttles (403s can last up to 2h).
-export function primeTleCacheFromDisk(cache: TtlCache<string>): void {
+export function primeTleCacheFromDisk(cache: TtlCache<TleCacheEntry>): void {
   readFile(TLE_CACHE_FILE, "utf8")
     .then((text) => {
-      if (text.trim().length > 0) cache.set("group:active", text);
+      if (text.trim().length > 0) {
+        cache.set("group:active", { text, fetchedAt: Date.now(), source: "disk" });
+      }
     })
     .catch(() => {});
 }
@@ -67,7 +75,7 @@ export function createApp(
   const providerInstance = provider ?? createProvider(process.env);
   const cache = new TtlCache<FlightState[]>(cacheTtlMs ?? DEFAULT_CACHE_TTL_MS);
   const trackCache = new TtlCache<FlightTrack | null>(trackCacheTtlMs ?? TRACK_CACHE_TTL_MS);
-  const tleCache = new TtlCache<string>(tleCacheTtlMs ?? TLE_CACHE_TTL_MS);
+  const tleCache = new TtlCache<TleCacheEntry>(tleCacheTtlMs ?? TLE_CACHE_TTL_MS);
   primeTleCacheFromDisk(tleCache);
   // The fallback must outlive the hot cache, or it is already expired the moment the primary fails.
   const lastGoodTtlMs = Math.max(cacheTtlMs ?? DEFAULT_CACHE_TTL_MS, DEFAULT_LAST_GOOD_TTL_MS);
@@ -176,13 +184,24 @@ export function createApp(
         return;
       }
       try {
-        const tle = await tleCache.getOrLoad(`catnr:${catnr}`, async () => {
+        const key = `catnr:${catnr}`;
+        const cached = tleCache.get(key);
+        const tle = cached ?? await tleCache.getOrLoad(key, async () => {
           const blocks = await Promise.all(
             catnr.split(",").map((c) => fetchCelesTrak(`CATNR=${c}&FORMAT=tle`))
           );
-          return blocks.filter((b) => b.includes("\n2 ")).join("");
+          return {
+            text: blocks.filter((b) => b.includes("\n2 ")).join(""),
+            fetchedAt: Date.now(),
+            source: "upstream",
+          };
         });
-        res.type("text/plain").send(tle);
+        res
+          .set("X-TLE-Fetched-At", String(tle.fetchedAt))
+          .set("X-TLE-Source", tle.source)
+          .set("X-TLE-Cache", cached ? "hit" : "miss")
+          .type("text/plain")
+          .send(tle.text);
       } catch {
         res.status(502).json({ error: "provider unreachable" });
       }
@@ -193,12 +212,19 @@ export function createApp(
       return;
     }
     try {
-      const tle = await tleCache.getOrLoad(`group:${group}`, async () => {
+      const key = `group:${group}`;
+      const cached = tleCache.get(key);
+      const tle = cached ?? await tleCache.getOrLoad(key, async () => {
         const text = await fetchCelesTrak(`GROUP=${group}&FORMAT=tle`);
         writeFile(TLE_CACHE_FILE, text).catch(() => {});
-        return text;
+        return { text, fetchedAt: Date.now(), source: "upstream" };
       });
-      res.type("text/plain").send(tle);
+      res
+        .set("X-TLE-Fetched-At", String(tle.fetchedAt))
+        .set("X-TLE-Source", tle.source)
+        .set("X-TLE-Cache", cached ? "hit" : "miss")
+        .type("text/plain")
+        .send(tle.text);
     } catch {
       res.status(502).json({ error: "provider unreachable" });
     }

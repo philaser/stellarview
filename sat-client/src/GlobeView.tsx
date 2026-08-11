@@ -105,6 +105,8 @@ export interface GlobeViewProps {
   satNames: Record<number, string>;
   selectedOrbit: [number, number][] | null;
   selectedCatnr: number | null;
+  followCatnr?: number | null;
+  focus?: { catnr: number; ts: number } | null;
   showNight?: boolean;
   locked?: boolean;
   onSelect: (catnr: number) => void;
@@ -155,7 +157,17 @@ function buildPoints(capacity: number, size: number, sizeAttenuation = true): TH
   }));
 }
 
-export default function GlobeView({ positions, satNames, selectedOrbit, selectedCatnr, showNight, locked, onSelect }: GlobeViewProps) {
+export default function GlobeView({
+  positions,
+  satNames,
+  selectedOrbit,
+  selectedCatnr,
+  followCatnr,
+  focus,
+  showNight,
+  locked,
+  onSelect,
+}: GlobeViewProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const globeRef = useRef<InstanceType<typeof Globe> | null>(null);
   const baseRef = useRef<THREE.Points | null>(null);
@@ -501,6 +513,33 @@ export default function GlobeView({ positions, satNames, selectedOrbit, selected
     if (!globe) return;
     globe.lights(globeLights(showNight ?? true));
   }, [showNight]);
+
+  // Focus is a one-shot camera move. Follow repeats the move on each position snapshot, keeping
+  // the selected satellite centered while still allowing the user to temporarily inspect nearby space.
+  useEffect(() => {
+    const globe = globeRef.current;
+    if (!globe || !focus) return;
+    const satellite = positionsRef.current.find((position) => position.catnr === focus.catnr);
+    if (satellite) globe.pointOfView({ lat: satellite.lat, lng: satellite.lon, altitude: 1.35 }, 850);
+  }, [focus]);
+
+  useEffect(() => {
+    const globe = globeRef.current;
+    if (!globe || followCatnr == null) return;
+    const satellite = positions.find((position) => position.catnr === followCatnr);
+    if (satellite) globe.pointOfView({ lat: satellite.lat, lng: satellite.lon, altitude: 1.25 }, 650);
+  }, [followCatnr, positions]);
+
+  useEffect(() => {
+    const globe = globeRef.current;
+    if (!globe) return;
+    const controls = globe.controls() as ReturnType<InstanceType<typeof Globe>["controls"]> & {
+      enableRotate?: boolean;
+      enableZoom?: boolean;
+    };
+    controls.enableRotate = !(locked ?? false);
+    controls.enableZoom = !(locked ?? false);
+  }, [locked]);
 
   // Snapshot bookkeeping: a new `positions` array starts a fresh 2s interpolation epoch. The old
   // snapshot is shifted into the "prev" buffers and new world coords are computed into "cur"; the rAF

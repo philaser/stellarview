@@ -264,7 +264,7 @@ afterEach(() => {
 
 // The app now defaults to 3D; tests exercising the 2D map click/feature flow switch first.
 const switchTo2d = async () => {
-  fireEvent.click(screen.getByRole("button", { name: /toggle 3d mode/i }));
+  fireEvent.click(screen.getByRole("button", { name: /show 2d map/i }));
   await act(async () => {});
 };
 
@@ -277,7 +277,8 @@ describe("App", () => {
     await act(async () => {
       vi.advanceTimersByTime(2000);
     });
-    expect(screen.getByText(/satellites loaded/)).toBeInTheDocument();
+    expect(document.querySelector(".count-pill")?.textContent).toContain("3 loaded");
+    expect(document.querySelector(".count-pill")?.textContent).toContain("3shown");
   });
 
   it("opens the details panel on satellite click", async () => {
@@ -308,7 +309,7 @@ describe("App", () => {
     await act(async () => {
       capturedClick!({ lngLat: { lng: 2.35, lat: 48.86 } });
     });
-    expect(screen.getByText(/observer/i)).toBeInTheDocument();
+    expect(screen.getByText(/48\.86, 2\.35/)).toBeInTheDocument();
   });
 
   it("shows a banner when the TLE fetch fails", async () => {
@@ -316,7 +317,7 @@ describe("App", () => {
     vi.mocked(fetch).mockRejectedValue(new Error("network"));
     render(<App />);
     await act(async () => {});
-    expect(screen.getByText("TLE provider unreachable")).toBeInTheDocument();
+    expect(screen.getByText(/TLE provider unreachable/)).toBeInTheDocument();
   });
 
   it("flags the selected satellite's dot feature", async () => {
@@ -394,7 +395,7 @@ describe("App", () => {
       capturedClick!({ point: { x: 0, y: 0 } });
     });
     await act(async () => { vi.advanceTimersByTime(2000); });
-    expect(screen.getByText("Next passes")).toBeInTheDocument();
+    expect(screen.getByText(/Strongest upcoming passes/i)).toBeInTheDocument();
     expect(document.querySelector(".pass-list")).toBeNull();
   });
 
@@ -414,7 +415,7 @@ describe("App", () => {
     expect(geoDots.every((f: { properties: { catnr: number } }) => f.properties.catnr !== 41866)).toBe(true);
   });
 
-  it("narrows by search", async () => {
+  it("keeps the orbital context visible while search results are open", async () => {
     render(<App />);
     await act(async () => {});
     await switchTo2d();
@@ -425,7 +426,8 @@ describe("App", () => {
     await act(async () => { vi.advanceTimersByTime(2000); });
     const dots = setDataMock.mock.calls.filter((c) => c[0] === "satellites").at(-1)?.[1].features;
     expect(dots.length).toBeGreaterThan(0);
-    expect(dots.every((f: { properties: { catnr: number } }) => f.properties.catnr === 44714)).toBe(true);
+    expect(dots).toHaveLength(3);
+    expect(screen.getByText("STARLINK-1008")).toBeInTheDocument();
   });
 
   it("deselects when the selected satellite is filtered out", async () => {
@@ -477,7 +479,7 @@ describe("App", () => {
     await act(async () => {});
     fireEvent.click(screen.getAllByText(/ISS \(ZARYA\)/)[0]); // results list item
     await act(async () => {});
-    expect(screen.getAllByText(/ISS \(ZARYA\)/).length).toBeGreaterThanOrEqual(2); // results item + panel title
+    expect(screen.getByText(/ISS \(ZARYA\)/)).toBeInTheDocument();
   });
 
   it("wraps the observer longitude into ±180", async () => {
@@ -488,7 +490,7 @@ describe("App", () => {
     await act(async () => {
       capturedClick!({ lngLat: { lng: 293.78, lat: 48.86 } });
     });
-    expect(screen.getByText(/Observer: 48\.86, -66\.22/)).toBeInTheDocument();
+    expect(screen.getByText(/48\.86, -66\.22/)).toBeInTheDocument();
   });
 
   it("hides the inactive filter section when the filter mode is switched", async () => {
@@ -508,13 +510,13 @@ describe("App", () => {
   it("applies only the active filter dimension", async () => {
     render(<App />);
     await act(async () => {});
-    const shown = () => screen.getByText(/satellites loaded/).textContent ?? "";
+    const shown = () => document.querySelector(".count-pill")?.textContent ?? "";
     // orbit mode: unchecking LEO hides both LEO sats (ISS + STARLINK), leaving GOES
     fireEvent.click(screen.getByRole("checkbox", { name: "LEO" }));
-    expect(shown()).toContain("· 1 shown");
+    expect(shown()).toContain("1shown");
     // switching to type mode ignores the regime selection entirely
     fireEvent.click(screen.getByRole("radio", { name: "Filter by type" }));
-    expect(shown()).toContain("· 3 shown");
+    expect(shown()).toContain("3shown");
   });
 
   it("toggles the day/night overlay", async () => {
@@ -543,18 +545,37 @@ describe("App", () => {
   it("collapses and expands the controls panel via the gear button", async () => {
     render(<App />);
     await act(async () => {});
-    expect(document.querySelector(".controls")?.classList.contains("open")).toBe(true);
-    fireEvent.click(screen.getByLabelText("Toggle filters"));
     expect(document.querySelector(".controls")?.classList.contains("closed")).toBe(true);
     fireEvent.click(screen.getByLabelText("Toggle filters"));
     expect(document.querySelector(".controls")?.classList.contains("open")).toBe(true);
+    fireEvent.click(screen.getByLabelText("Toggle filters"));
+    expect(document.querySelector(".controls")?.classList.contains("closed")).toBe(true);
   });
 
   it("toggles between 2D and 3D modes", async () => {
     render(<App />);
     await act(async () => {});
-    expect(screen.getByText("2D mode")).toBeInTheDocument(); // app defaults to 3D
-    fireEvent.click(screen.getByRole("button", { name: /toggle 3d mode/i }));
-    expect(screen.getByText("3D mode")).toBeInTheDocument();
+    const twoDimensional = screen.getByRole("button", { name: /show 2d map/i });
+    fireEvent.click(twoDimensional);
+    expect(screen.getByRole("button", { name: /show 3d globe/i })).toBeInTheDocument();
+  });
+
+  it("pauses and resumes the simulation clock", async () => {
+    render(<App />);
+    await act(async () => {});
+    expect(screen.getByText("LIVE")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /pause simulation/i }));
+    expect(screen.getByText("PAUSED")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /resume live simulation/i }));
+    expect(screen.getByText("LIVE")).toBeInTheDocument();
+  });
+
+  it("refreshes the catalog without reloading the page", async () => {
+    render(<App />);
+    await act(async () => {});
+    fireEvent.click(screen.getByRole("button", { name: /refresh satellite catalog/i }));
+    await act(async () => {});
+    const calls = vi.mocked(fetch).mock.calls.filter(([url]) => String(url).includes("/api/tle"));
+    expect(calls).toHaveLength(2);
   });
 });

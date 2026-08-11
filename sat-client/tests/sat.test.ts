@@ -48,7 +48,7 @@ describe("positionAt", () => {
 describe("buildGroundTrack", () => {
   it("produces one orbit of points spanning ~one period", () => {
     const [iss] = parseTleBlock(ISS_BLOCK);
-    const track = buildGroundTrack(iss.satrec, 120);
+    const track = buildGroundTrack(iss.satrec, 120, new Date("2026-08-04T12:00:00Z"));
     expect(track).toHaveLength(120);
     for (const [lon, lat] of track) {
       // unwrapped longitudes may legitimately exceed ±180
@@ -60,7 +60,7 @@ describe("buildGroundTrack", () => {
 
   it("unwraps longitudes so the track never jumps the antimeridian", () => {
     const [iss] = parseTleBlock(ISS_BLOCK);
-    const track = buildGroundTrack(iss.satrec, 120);
+    const track = buildGroundTrack(iss.satrec, 120, new Date("2026-08-04T12:00:00Z"));
     for (let i = 1; i < track.length; i++) {
       expect(Math.abs(track[i][0] - track[i - 1][0])).toBeLessThanOrEqual(180);
     }
@@ -70,7 +70,14 @@ describe("buildGroundTrack", () => {
 describe("nextPasses", () => {
   it("finds ISS passes over Paris in the next 48h, sorted by max elevation", () => {
     const [iss] = parseTleBlock(ISS_BLOCK);
-    const passes = nextPasses(iss.satrec, { lat: 48.8566, lon: 2.3522, heightM: 0 }, 48);
+    const passes = nextPasses(
+      iss.satrec,
+      { lat: 48.8566, lon: 2.3522, heightM: 0 },
+      48,
+      60,
+      5,
+      new Date("2026-08-04T12:00:00Z")
+    );
     expect(passes.length).toBeGreaterThan(0);
     for (const p of passes) {
       expect(p.start < p.peak && p.peak < p.end).toBe(true);
