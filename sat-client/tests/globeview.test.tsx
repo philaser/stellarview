@@ -555,6 +555,7 @@ describe("GlobeView", () => {
     const base = createdPoints.find((p) => p.geometry.attributes.position.count === 2);
     expect(base).toBeDefined();
     expect(base.material.size).toBeCloseTo(1.7); // 0.017 globe radii x 100-unit globe radius
+    expect(base.material.opacity).toBe(0.64);
     const pos = base.geometry.attributes.position.array as number[];
     expect(pos[2]).toBeCloseTo(420 / 6371, 3);
     expect(pos[5]).toBeCloseTo(0.35, 5);
@@ -642,7 +643,7 @@ describe("GlobeView", () => {
     expect((mapEl as HTMLElement).style.cursor).toBe("pointer");
     const tooltip = container.querySelector(".globe-tooltip")!;
     expect(tooltip.classList.contains("visible")).toBe(true);
-    expect(tooltip.textContent).toBe("Sat One · 1");
+    expect(tooltip.textContent).toBe("Sat One · NORAD 1");
     fireEvent.pointerMove(mapEl, { clientX: 5, clientY: 5 });
     expect(dot.visible).toBe(false);
     expect(glow.visible).toBe(false);

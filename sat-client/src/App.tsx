@@ -68,6 +68,16 @@ function catalogSourceLabel(source: string | null, cache: string | null): string
   return "CELESTRAK";
 }
 
+function formatPassTime(date: Date): string {
+  return date.toLocaleString("en-GB", {
+    weekday: "short",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+    timeZone: "UTC",
+  }).toUpperCase();
+}
+
 export default function App() {
   const [sats, setSats] = useState<CatalogSatellite[]>([]);
   const [catalog, setCatalog] = useState<CatalogStatus>({
@@ -288,6 +298,7 @@ export default function App() {
   const catalogState = catalog.error
     ? sats.length > 0 ? "STALE" : "OFFLINE"
     : catalog.loading ? "SYNCING" : catalog.source === "disk" ? "CACHED" : "FRESH";
+  const catalogStateLabel = `CATALOG ${catalogState}`;
   const utcTime = simulation.time.toLocaleTimeString("en-GB", {
     hour: "2-digit",
     minute: "2-digit",
@@ -341,7 +352,7 @@ export default function App() {
         <div className={`catalog-state state-${catalogState.toLowerCase()}`}>
           <span className="live-dot" aria-hidden="true" />
           <span>
-            <strong>{catalogState}</strong>
+            <strong>{catalogStateLabel}</strong>
             <small>{formatCatalogAge(catalog.fetchedAt)} · {catalogSourceLabel(catalog.source, catalog.cache)}</small>
           </span>
         </div>
@@ -353,7 +364,12 @@ export default function App() {
           <strong>{utcTime} UTC</strong>
           <small>{utcDate}</small>
         </span>
-        <span className={`time-mode ${simulation.mode}`}>{simulation.mode === "live" ? "LIVE" : "PAUSED"}</span>
+        <span
+          className={`time-mode ${simulation.mode}`}
+          aria-label={simulation.mode === "live" ? "Real-time satellite positions" : "Simulation paused"}
+        >
+          {simulation.mode === "live" ? "REAL-TIME" : "PAUSED"}
+        </span>
       </div>
 
       <div className="dock" aria-label="Map controls">
@@ -362,6 +378,7 @@ export default function App() {
           aria-label="Toggle filters"
           aria-expanded={controlsOpen}
           title="Filters"
+          data-tooltip="Filters"
           onClick={openControls}
         >
           <IconAdjustmentsHorizontal size={19} stroke={1.8} />
@@ -370,6 +387,7 @@ export default function App() {
           className="dock-item icon-button"
           aria-label={mode === "2d" ? "Show 3D globe" : "Show 2D map"}
           title={mode === "2d" ? "Show 3D globe" : "Show 2D map"}
+          data-tooltip={mode === "2d" ? "3D globe" : "2D map"}
           onClick={() => setMode((current) => (current === "2d" ? "3d" : "2d"))}
         >
           {mode === "2d" ? <IconWorld size={19} stroke={1.8} /> : <IconMap2 size={19} stroke={1.8} />}
@@ -388,6 +406,8 @@ export default function App() {
           className="dock-item icon-button reset-button"
           aria-label="Return to live time"
           title="Return to live time"
+          data-tooltip="Live time"
+          disabled={simulation.mode === "live"}
           onClick={simulation.reset}
         >
           <IconRefresh size={18} stroke={1.8} />
@@ -397,6 +417,7 @@ export default function App() {
           aria-label="Day/Night"
           aria-pressed={showNight}
           title="Day and night lighting"
+          data-tooltip={showNight ? "Disable day/night" : "Enable day/night"}
           onClick={() => setShowNight((shown) => !shown)}
         >
           {showNight ? <IconMoonStars size={18} stroke={1.8} /> : <IconSun size={18} stroke={1.8} />}
@@ -421,6 +442,16 @@ export default function App() {
           )}
         </label>
       </div>
+
+      {mode === "3d" && sats.length > 0 && selectedCatnr === null && search === "" && !controlsOpen && (
+        <div className="interaction-hint" role="status">
+          <IconTarget size={16} stroke={1.8} aria-hidden="true" />
+          <span>
+            <strong>Select a satellite to inspect</strong>
+            <small>Click a marker or search by name / NORAD ID</small>
+          </span>
+        </div>
+      )}
 
       <section className={`controls ${controlsOpen ? "open" : "closed"}`} aria-label="Satellite filters">
         <div className="controls-header">
@@ -584,11 +615,13 @@ export default function App() {
           </div>
           {passes && passes.length > 0 && (
             <div className="passes">
-              <div className="section-title"><IconEye size={14} stroke={1.8} /> Strongest upcoming passes</div>
+              <div className="section-title">
+                <IconEye size={14} stroke={1.8} /> Strongest upcoming passes <small>UTC</small>
+              </div>
               <div className="passes-list">
                 {passes.slice(0, 5).map((pass, index) => (
                   <div key={index} className="pass-row">
-                    <span className="pass-time">{pass.start.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</span>
+                    <span className="pass-time">{formatPassTime(pass.start)}</span>
                     <span className="pass-bar-track">
                       <span className="pass-bar" style={{ width: `${Math.min(100, (pass.maxElevationDeg / 90) * 100)}%` }} />
                     </span>
@@ -604,16 +637,22 @@ export default function App() {
       {observer && (
         <div className="observer-label">
           <IconCurrentLocation size={14} stroke={1.8} />
-          <span>{observer.lat.toFixed(2)}, {observer.lon.toFixed(2)}</span>
-          <small>{mode === "2d" ? "Click map to relocate" : "Observer location"}</small>
+          <span>Observer {observer.lat.toFixed(2)}°, {observer.lon.toFixed(2)}°</span>
+          {mode === "2d" && <small>Click map to relocate</small>}
         </div>
       )}
 
       <div className="count-pill" aria-live="polite">
-        <span className="count-value">{visibleSats.length.toLocaleString()}</span>
-        <span>shown</span>
-        <span className="count-separator">/</span>
-        <span>{sats.length.toLocaleString()} loaded</span>
+        {visibleSats.length === sats.length ? (
+          <><span className="count-value">{sats.length.toLocaleString()}</span>{" objects"}</>
+        ) : (
+          <>
+            <span className="count-value">{visibleSats.length.toLocaleString()}</span>
+            {" shown"}
+            <span className="count-separator"> / </span>
+            <span>{sats.length.toLocaleString()} loaded</span>
+          </>
+        )}
       </div>
 
       {catalog.loading && sats.length === 0 && (

@@ -82,6 +82,7 @@ Use `@tabler/icons-react` outline icons at 18-20px and 1.7-2px stroke. Every ico
 - Country boundaries come from the bundled Natural Earth dataset in the same folder.
 - The Earth texture, atmospheric rim, and directional lighting must preserve land/ocean depth without competing with tracked objects.
 - Ambient satellites use fixed-pixel points and camera-facing attenuation. Selection alone receives a green marker, anchored label, violet orbit, and camera focus.
+- Ambient marker opacity stays below selected and hovered objects. Pointer hit areas are intentionally larger than the visible dots so the globe remains clean without making selection fiddly.
 
 ## Core components
 
@@ -103,7 +104,11 @@ Header, status/category, priority metrics, secondary orbital facts, actions, pas
 
 ### Live status
 
-Shows simulation status, UTC time, TLE freshness, catalog count, and recoverable errors. Status uses both icon/text and color.
+Separates simulation time from source freshness: `REAL-TIME` or `PAUSED` describes position propagation, while `CATALOG FRESH`, `CATALOG CACHED`, `CATALOG STALE`, or `CATALOG OFFLINE` describes TLE data. Status uses both icon/text and color.
+
+### Interaction guidance
+
+The empty overview carries one compact cue explaining that markers are selectable and search accepts names or NORAD IDs. It disappears during search, filtering, and selection. Icon-only dock controls show immediate hover and keyboard-focus tooltips.
 
 ## Accessibility
 

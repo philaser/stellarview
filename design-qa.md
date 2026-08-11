@@ -5,8 +5,8 @@
 - Source visual truth: [satellitemap.space](https://satellitemap.space/), captured and inspected in the in-app browser at a 1512 × 776 CSS viewport with DPR 2. The browser capture was normalized to 1512 × 776 pixels.
 - Implementation: local `sat-client` preview at `http://localhost:5175/`.
 - Implementation screenshots:
-  - Overview: `/private/tmp/orbital-view-desktop-v3.png`
-  - Selected satellite: `/private/tmp/orbital-view-selected-v4.png`
+  - Refined overview: `/private/tmp/orbital-improvements-05-refined-overview.png`
+  - Refined selected satellite: `/private/tmp/orbital-improvements-06-refined-selected.png`
 - Implementation viewport: 1247 × 807 CSS px, DPR 2. The browser screenshot API produced normalized 1247 × 807 pixel PNGs, so comparisons used the normalized full-view captures rather than raw device pixels.
 - Theme: dark.
 - States: live 3D overview with 16,089 loaded objects; ISS selected with orbit, spatial label, focus, details, and pass predictions.
@@ -21,7 +21,7 @@ Fonts and typography use a system sans stack for chrome and system monospace for
 
 Spacing and layout use stable control zones: status upper left, time upper center, details upper right, dock lower center, observer lower left, and count lower right. Panels use the same border, radius, elevation, and spacing system. The selected panel does not cover the selected marker.
 
-Colors map cleanly to semantics: blue for active controls, cyan/violet/amber for orbital regimes, green for selection/live state, violet for the selected orbit, amber for cached data, and red for failures. `CACHED · DISK FALLBACK` removes the earlier contradiction between freshness and provenance.
+Colors map cleanly to semantics: blue for active controls, cyan/violet/amber for orbital regimes, green for selection/live state, violet for the selected orbit, amber for cached data, and red for failures. `CATALOG CACHED` describes TLE freshness while `REAL-TIME` describes position propagation, removing the earlier ambiguity.
 
 Image and asset fidelity uses bundled real `three-globe` Earth/topology textures and Natural Earth country boundaries. There are no placeholder images, handcrafted SVG assets, emoji controls, or CSS-drawn product imagery. Tabler supplies the production icon set.
 
@@ -40,7 +40,7 @@ The selected-state capture was reviewed separately because marker, orbit, teleme
 
 ## Interaction and runtime evidence
 
-Browser-rendered flows checked: catalog load, overview motion, filters open/close, search and result selection, animated focus, selected details, follow, lock/unlock, pause/resume, day/night, and catalog refresh. Pause held simulation time and positions; resume returned to live time. No runtime error overlay appeared during these flows. Production TypeScript/Vite build and the complete `sat-client` test suite passed after the final visual changes.
+Browser-rendered flows checked: catalog load, overview motion, first-use guidance, filters open/close, search and result selection, animated focus, selected details, follow, lock/unlock, pause/resume, day/night, and catalog refresh. Pause held simulation time and positions; resume returned to live time. Automated interaction coverage verifies the first-use cue disappears after selection, the reset control is disabled at live time, marker hover/click hit areas work, and keyboard search selection remains available. No runtime error overlay appeared during these flows. Production TypeScript/Vite build and the complete test suite passed after the final visual changes.
 
 The in-app browser does not expose viewport resizing. Mobile behavior received a code-level breakpoint/safe-area review and responsive fixes, but a normalized rendered mobile capture remains a residual test gap rather than a known design mismatch. Mobile rules provide one sheet at a time, safe-area-aware bottoms, a compact dock that drops the reset control below 430 px, a visible search cue, scrollable details, and no minimum-height clipping in landscape.
 
@@ -85,6 +85,32 @@ Post-fix evidence: `/private/tmp/orbital-view-selected-v4.png`.
 ### Iteration 3 — passed
 
 The combined final overview and selected-state review found no actionable P0, P1, or P2 visual differences. Remaining gaps are validation coverage, not observed defects.
+
+### Iteration 4 — refinement passed
+
+Fresh audit findings:
+
+- P1: ambient markers still competed with geography in the overview.
+- P1: nothing visible explained that markers were selectable.
+- P1: `CACHED` and `LIVE` could be read as contradictory data-freshness claims.
+- P2: persistent metadata and icon-only dock controls needed clearer wording and affordances.
+
+Fixes:
+
+- Lowered ambient marker opacity while preserving full-strength hover and selection sprites.
+- Enlarged invisible hover/click radii and retained the marker tooltip/highlight treatment.
+- Added a compact overview cue connecting marker selection with name/NORAD search.
+- Separated `CATALOG ...` freshness from `REAL-TIME` position propagation.
+- Added immediate dock tooltips, disabled the redundant live-time reset, labeled observer coordinates, collapsed the unfiltered count, and clarified pass times as weekday + UTC.
+- Raised persistent supporting-text contrast, dark-side geographic definition, and narrow-screen touch targets.
+
+Before/after evidence:
+
+- Before: `/private/tmp/orbital-improvements-01-overview.png`
+- Refined overview: `/private/tmp/orbital-improvements-05-refined-overview.png`
+- Refined selected state: `/private/tmp/orbital-improvements-06-refined-selected.png`
+
+Independent final review confirmed all three P1 findings are resolved with no new P0, P1, or P2 regression.
 
 ## Findings
 

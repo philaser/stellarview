@@ -269,11 +269,13 @@ afterEach(() => {
 // The app now defaults to 3D; tests exercising the 2D map click/feature flow switch first.
 const switchTo2d = async () => {
   fireEvent.click(screen.getByRole("button", { name: /show 2d map/i }));
-  await act(async () => {});
+  await act(async () => {
+    await import("../src/MapView");
+  });
 };
 
 describe("App", () => {
-  it("fetches the TLE list on load and reports N/M satellites", async () => {
+  it("fetches the TLE list and collapses an unfiltered count to one readable total", async () => {
     render(<App />);
     await act(async () => {});
     const calls = vi.mocked(fetch).mock.calls.map((c) => String(c[0]));
@@ -281,8 +283,21 @@ describe("App", () => {
     await act(async () => {
       vi.advanceTimersByTime(2000);
     });
-    expect(document.querySelector(".count-pill")?.textContent).toContain("3 loaded");
-    expect(document.querySelector(".count-pill")?.textContent).toContain("3shown");
+    expect(document.querySelector(".count-pill")?.textContent).toBe("3 objects");
+    expect(screen.getByText("CATALOG FRESH")).toBeInTheDocument();
+    expect(screen.getByText("REAL-TIME")).toBeInTheDocument();
+    expect(screen.getByText(/Select a satellite to inspect/i)).toBeInTheDocument();
+  });
+
+  it("removes the first-use selection cue after a satellite is chosen", async () => {
+    render(<App />);
+    await act(async () => {});
+    expect(screen.getByText(/Select a satellite to inspect/i)).toBeInTheDocument();
+    fireEvent.change(screen.getByRole("textbox", { name: /search satellites/i }), {
+      target: { value: "ISS" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: /ISS \(ZARYA\) NORAD 25544/i }));
+    expect(screen.queryByText(/Select a satellite to inspect/i)).not.toBeInTheDocument();
   });
 
   it("opens the details panel on satellite click", async () => {
@@ -313,7 +328,7 @@ describe("App", () => {
     await act(async () => {
       capturedClick!({ lngLat: { lng: 2.35, lat: 48.86 } });
     });
-    expect(screen.getByText(/48\.86, 2\.35/)).toBeInTheDocument();
+    expect(screen.getByText(/Observer 48\.86°, 2\.35°/)).toBeInTheDocument();
   });
 
   it("shows a banner when the TLE fetch fails", async () => {
@@ -494,7 +509,7 @@ describe("App", () => {
     await act(async () => {
       capturedClick!({ lngLat: { lng: 293.78, lat: 48.86 } });
     });
-    expect(screen.getByText(/48\.86, -66\.22/)).toBeInTheDocument();
+    expect(screen.getByText(/Observer 48\.86°, -66\.22°/)).toBeInTheDocument();
   });
 
   it("hides the inactive filter section when the filter mode is switched", async () => {
@@ -517,10 +532,11 @@ describe("App", () => {
     const shown = () => document.querySelector(".count-pill")?.textContent ?? "";
     // orbit mode: unchecking LEO hides both LEO sats (ISS + STARLINK), leaving GOES
     fireEvent.click(screen.getByRole("checkbox", { name: "LEO" }));
-    expect(shown()).toContain("1shown");
+    expect(shown()).toContain("1 shown");
+    expect(shown()).toContain("3 loaded");
     // switching to type mode ignores the regime selection entirely
     fireEvent.click(screen.getByRole("radio", { name: "Filter by type" }));
-    expect(shown()).toContain("3shown");
+    expect(shown()).toBe("3 objects");
   });
 
   it("toggles the day/night overlay", async () => {
@@ -567,11 +583,15 @@ describe("App", () => {
   it("pauses and resumes the simulation clock", async () => {
     render(<App />);
     await act(async () => {});
-    expect(screen.getByText("LIVE")).toBeInTheDocument();
+    const reset = screen.getByRole("button", { name: /return to live time/i });
+    expect(screen.getByText("REAL-TIME")).toBeInTheDocument();
+    expect(reset).toBeDisabled();
     fireEvent.click(screen.getByRole("button", { name: /pause simulation/i }));
     expect(screen.getByText("PAUSED")).toBeInTheDocument();
+    expect(reset).toBeEnabled();
     fireEvent.click(screen.getByRole("button", { name: /resume live simulation/i }));
-    expect(screen.getByText("LIVE")).toBeInTheDocument();
+    expect(screen.getByText("REAL-TIME")).toBeInTheDocument();
+    expect(reset).toBeDisabled();
   });
 
   it("refreshes the catalog without reloading the page", async () => {

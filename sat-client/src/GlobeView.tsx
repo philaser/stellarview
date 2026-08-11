@@ -19,6 +19,7 @@ const altR = (altKm: number) => Math.min(altKm / 6371, ALT_CAP);
 // of ~100 three.js units, so every size below is multiplied by the actual radius before being
 // applied to materials/sprites (see `globeRadius` in the component).
 const BASE_SIZE = 0.017;
+const BASE_OPACITY = 0.64;
 const MIN_DOT_SIZE = 0.01;
 const MAX_DOT_SIZE = 0.09;
 const SIZE_CURVE = 0.35;
@@ -99,8 +100,8 @@ export function cameraFacingBrightness(
 }
 
 // Screen-space picking radii (px) around the cursor; the nearest projected dot wins.
-const HOVER_THRESHOLD = 8;
-const CLICK_THRESHOLD = 12;
+const HOVER_THRESHOLD = 11;
+const CLICK_THRESHOLD = 14;
 const TOOLTIP_OFFSET = 14;
 // A click that moved more than this many px from its pointerdown was a globe-rotation drag,
 // not a selection gesture.
@@ -110,7 +111,7 @@ const DRAG_TOLERANCE = 5;
  *  the terminator shows; without, ambient-only so the whole globe reads uniformly lit. */
 export function globeLights(showNight: boolean): THREE.Light[] {
   return showNight
-    ? [new THREE.AmbientLight(0xb8c5da, 1.2 * Math.PI), new THREE.DirectionalLight(0xffffff, 0.65 * Math.PI)]
+    ? [new THREE.AmbientLight(0xc2cede, 1.3 * Math.PI), new THREE.DirectionalLight(0xffffff, 0.65 * Math.PI)]
     : [new THREE.AmbientLight(0xffffff, 2 * Math.PI)];
 }
 
@@ -168,7 +169,7 @@ function buildPoints(capacity: number, size: number, sizeAttenuation = true): TH
     vertexColors: true,
     sizeAttenuation,
     transparent: true,
-    opacity: 0.82,
+    opacity: BASE_OPACITY,
   }));
 }
 
@@ -405,7 +406,7 @@ export default function GlobeView({
       setTooltip({
         x: Math.min(hit.px + TOOLTIP_OFFSET, Math.max(8, rect.width - 230)),
         y: Math.min(hit.py + TOOLTIP_OFFSET, Math.max(8, rect.height - 44)),
-        text: `${satNamesRef.current[catnr] ?? "Unknown"} · ${catnr}`,
+        text: `${satNamesRef.current[catnr] ?? "Unknown"} · NORAD ${catnr}`,
       });
       container.style.cursor = "pointer";
     };
@@ -431,7 +432,7 @@ export default function GlobeView({
       .then((geo: { features: object[] }) => {
         globe
           .polygonsData(geo.features)
-          .polygonCapColor(() => "rgba(26, 38, 57, 0.58)")
+          .polygonCapColor(() => "rgba(30, 44, 65, 0.62)")
           .polygonSideColor(() => "rgba(56, 89, 138, 0.22)")
           .polygonStrokeColor(() => "rgba(114, 157, 214, 0.34)")
           .polygonAltitude(0.002);
@@ -609,7 +610,7 @@ export default function GlobeView({
         vertexColors: true,
         sizeAttenuation: false,
         transparent: true,
-        opacity: 0.82,
+        opacity: BASE_OPACITY,
       });
     }
 
@@ -749,6 +750,7 @@ export default function GlobeView({
       <div
         className={tooltip ? "globe-tooltip visible" : "globe-tooltip"}
         style={tooltip ? { left: tooltip.x, top: tooltip.y } : undefined}
+        aria-hidden="true"
       >
         {tooltip?.text}
       </div>
