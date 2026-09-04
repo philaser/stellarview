@@ -41,7 +41,7 @@ Satellite category colors are defined in `sat-client/src/sat/catalog.ts` and mus
 - Heading: 14px/600.
 - Body: 13px/1.5.
 - Label: 11px/600 with restrained uppercase tracking.
-- Never place essential text below 12px.
+- Use 12–14px for primary reading; compact metadata labels may use 11px with sufficient contrast.
 
 ### Spacing and shape
 
@@ -80,7 +80,7 @@ Use `@tabler/icons-react` outline icons at 18-20px and 1.7-2px stroke. Every ico
 
 - Use the bundled `three-globe` dark Earth and topology assets under `sat-client/public/globe/`; do not rely on a runtime image CDN.
 - Country boundaries come from the bundled Natural Earth dataset in the same folder.
-- The Earth texture, atmospheric rim, and directional lighting must preserve land/ocean depth without competing with tracked objects.
+- The Earth texture, atmospheric rim, and directional lighting preserve land/ocean depth without competing with tracked objects. Sun direction follows simulation time. Display altitude is compressed; the violet path is a projected ground track. Both limitations are disclosed in details.
 - Ambient satellites use fixed-pixel points and camera-facing attenuation. Selection alone receives a green marker, anchored label, violet orbit, and camera focus.
 - Ambient marker opacity stays below selected and hovered objects. Pointer hit areas are intentionally larger than the visible dots so the globe remains clean without making selection fiddly.
 
@@ -92,7 +92,7 @@ Variants: neutral, active, danger, icon-only. States: default, hover, focus-visi
 
 ### Search
 
-Desktop search lives in the bottom dock. Mobile search expands to a full-width results surface. Results support Arrow Up/Down, Enter, and Escape.
+Search lives in the control dock and expands into a results surface. Results support Arrow Up/Down, Enter, and Escape. Searching a hidden category reveals the selected result and explains the filter change. Selection moves focus into details; closing search restores the controls.
 
 ### Filters
 
@@ -100,7 +100,7 @@ The existing Orbit/Type segmented control and chips remain the visual foundation
 
 ### Details panel
 
-Header, status/category, priority metrics, secondary orbital facts, actions, pass predictions. Desktop anchors top-right. Mobile becomes a scrollable bottom sheet. It must not coexist with the mobile filters sheet.
+Header, status/category, priority metrics, actions and expandable technical data. Basic details never require location. Observer setup is explicit; manual coordinates or the named Paris reference enable visibility and chronological pass predictions. Desktop reserves a right-hand column. Mobile uses a scrollable bottom sheet with an expandable summary, keeping globe space above it. Filters and details are mutually exclusive.
 
 ### Live status
 
@@ -121,9 +121,9 @@ The empty overview carries one compact cue explaining that markers are selectabl
 
 ## Responsive behavior
 
-- Desktop: compact observer chip, count/time status, top-right details, bottom-center dock and filter popover.
+- Desktop: unified product/view/freshness/time header, right-hand details, bottom-center dock and filter popover.
 - Mobile: top status bar, bottom dock, one bottom sheet at a time, no persistent observer chip or count pill over the globe.
-- The globe remains full-bleed at every viewport.
+- The visualization stage resizes around the details panel or sheet so the selected object stays within the usable map area. Labels stay below interface controls.
 
 ## Do
 

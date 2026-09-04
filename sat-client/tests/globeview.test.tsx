@@ -15,7 +15,7 @@ const { createdPoints, sceneAdd, controlsListeners, cameraState, labelsDataMock,
     sceneAdd: vi.fn(),
     controlsListeners: {} as Record<string, (() => void) | null>,
     // camera sits 10 units from the globe origin at the initial pointOfView (refDist = 10)
-    cameraState: { x: 0, y: 0, z: 10 },
+    cameraState: { x: 0, y: 0, z: 10, altitude: 2.75 },
     labelsDataMock: vi.fn(),
     labelTextAccessor: { current: null as ((d: unknown) => string) | null },
     pointOfViewMock: vi.fn(),
@@ -163,6 +163,9 @@ vi.mock("globe.gl", () => ({
     }
     pointOfView(...args: unknown[]) {
       pointOfViewMock(...args);
+      if (args.length === 0) return { lat: 0, lng: 0, altitude: cameraState.altitude };
+      const view = args[0] as { altitude?: number };
+      if (view.altitude !== undefined) cameraState.altitude = view.altitude;
       return this;
     }
     _destructor() {}
@@ -603,7 +606,24 @@ describe("GlobeView", () => {
         onSelect={() => {}}
       />
     );
-    expect(pointOfViewMock).toHaveBeenCalledWith({ lat: 10, lng: 20, altitude: 1.9 }, 650);
+    expect(pointOfViewMock).toHaveBeenCalledWith({ lat: 10, lng: 20, altitude: 2.15 }, 650);
+    cameraState.altitude = 3.4;
+    rerender(<GlobeView positions={[...positions]} satNames={satNames} selectedOrbit={null}
+      selectedCatnr={1} followCatnr={1} onSelect={() => {}} />);
+    expect(pointOfViewMock).toHaveBeenLastCalledWith({ lat: 10, lng: 20, altitude: 3.4 }, 650);
+  });
+
+  it("focuses a revealed search result when its first position arrives", () => {
+    const focus = { catnr: 1, ts: 42 };
+    const { rerender } = renderGlobe({ positions: [], focus });
+    pointOfViewMock.mockClear();
+    rerender(<GlobeView positions={positions} satNames={satNames} selectedOrbit={null}
+      selectedCatnr={1} focus={focus} onSelect={() => {}} />);
+    expect(pointOfViewMock).toHaveBeenCalledWith({ lat: 10, lng: 20, altitude: 2.15 }, 850);
+    pointOfViewMock.mockClear();
+    rerender(<GlobeView positions={[...positions]} satNames={satNames} selectedOrbit={null}
+      selectedCatnr={1} focus={focus} onSelect={() => {}} />);
+    expect(pointOfViewMock).not.toHaveBeenCalled();
   });
 
   it("does not select on a click far from any projected dot", () => {

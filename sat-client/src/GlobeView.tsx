@@ -589,17 +589,21 @@ export default function GlobeView({
     globe.lights(lights);
   }, [showNight, time]);
 
+  const handledFocusTsRef = useRef<number | null>(null);
+
   // Focus is a one-shot camera move. Follow repeats the move on each position snapshot, keeping
   // the selected satellite centered while still allowing the user to temporarily inspect nearby space.
   useEffect(() => {
     const globe = globeRef.current;
-    if (!globe || !focus) return;
-    const satellite = positionsRef.current.find((position) => position.catnr === focus.catnr);
-    if (satellite) globe.pointOfView(
+    if (!globe || !focus || handledFocusTsRef.current === focus.ts) return;
+    const satellite = positions.find((position) => position.catnr === focus.catnr);
+    if (!satellite) return;
+    handledFocusTsRef.current = focus.ts;
+    globe.pointOfView(
       { lat: satellite.lat, lng: satellite.lon, altitude: 2.15 },
       reducedMotionRef.current ? 0 : 850
     );
-  }, [focus]);
+  }, [focus, positions]);
 
   useEffect(() => {
     const globe = globeRef.current;
@@ -732,7 +736,9 @@ export default function GlobeView({
     }
   }, [positions, selectedCatnr, hoveredCatnr]);
 
-  // Re-create the label layer ONLY when the selection changes; position ticks mutate the same entry above.
+  const selectedPositionAvailable = positions.some((position) => position.catnr === selectedCatnr);
+
+  // Position ticks mutate the label; a newly revealed result may arrive after selection.
   useEffect(() => {
     const globe = globeRef.current;
     if (!globe) return;
@@ -747,7 +753,7 @@ export default function GlobeView({
     const entry = sat ? { lat: sat.lat, lng: sat.lon, catnr: sat.catnr, altKm: sat.altKm } : null;
     labelEntryRef.current = entry;
     globe.labelsData(entry ? [entry] : []);
-  }, [selectedCatnr]);
+  }, [selectedCatnr, selectedPositionAvailable]);
 
   // The orbit ground track is drawn as a fat gradient Line2; the color peak loops around the ring
   // in the rAF loop as a direction cue. Writing new world coords also resets the loop phase.
