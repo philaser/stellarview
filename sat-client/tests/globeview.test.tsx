@@ -6,10 +6,11 @@ import GlobeView, {
   dotSizeFor,
   lerpWorldPositions,
   orbitGradientColors,
+  isVisibleAboveGlobe,
 } from "../src/GlobeView";
 import { threeLineMocks } from "./setup";
 
-const { createdPoints, sceneAdd, controlsListeners, cameraState, labelsDataMock, labelTextAccessor, pointOfViewMock, rafCallbacks } =
+const { createdPoints, sceneAdd, controlsListeners, cameraState, labelsDataMock, labelTextAccessor, pointOfViewMock, rafCallbacks, coordsForTest, globeRadiusForTest } =
   vi.hoisted(() => ({
     createdPoints: [] as any[],
     sceneAdd: vi.fn(),
@@ -21,6 +22,8 @@ const { createdPoints, sceneAdd, controlsListeners, cameraState, labelsDataMock,
     pointOfViewMock: vi.fn(),
     // captured rAF callbacks so tests can drive the interpolation loop frame-by-frame
     rafCallbacks: [] as FrameRequestCallback[],
+    coordsForTest: { current: (lat: number, lng: number, altitude: number) => ({ x: lng, y: lat, z: altitude }) },
+    globeRadiusForTest: { current: 1 },
   }));
 
 const config: Record<string, unknown> = {};
@@ -53,10 +56,10 @@ vi.mock("globe.gl", () => ({
       };
     }
     getCoords(lat: number, lng: number, altitude = 0) {
-      return { x: lng, y: lat, z: altitude };
+      return coordsForTest.current(lat, lng, altitude);
     }
     getGlobeRadius() {
-      return 100;
+      return globeRadiusForTest.current;
     }
     lights(d: unknown) {
       config.lights = d;
@@ -428,6 +431,19 @@ describe("cameraFacingBrightness", () => {
   });
 });
 
+describe("isVisibleAboveGlobe", () => {
+  const camera = { x: 0, y: 0, z: 300 };
+
+  it("rejects a far-side point whose camera segment crosses Earth", () => {
+    expect(isVisibleAboveGlobe({ x: -20, y: 0, z: -120 }, camera, 100)).toBe(false);
+  });
+
+  it("keeps front-side and elevated beyond-limb points selectable", () => {
+    expect(isVisibleAboveGlobe({ x: 20, y: 0, z: 120 }, camera, 100)).toBe(true);
+    expect(isVisibleAboveGlobe({ x: 110, y: 0, z: 0 }, camera, 100)).toBe(true);
+  });
+});
+
 describe("orbitGradientColors", () => {
   const peakIndexOf = (colors: Float32Array) => {
     let best = 0;
@@ -487,6 +503,8 @@ describe("GlobeView", () => {
     cameraState.x = 0;
     cameraState.y = 0;
     cameraState.z = 10;
+    globeRadiusForTest.current = 1;
+    coordsForTest.current = (lat, lng, altitude) => ({ x: lng, y: lat, z: altitude });
     // jsdom has no PointerEvent; the component listens for pointermove, so give it a MouseEvent-backed one.
     vi.stubGlobal(
       "PointerEvent",
@@ -573,7 +591,7 @@ describe("GlobeView", () => {
     );
     const base = createdPoints.find((p) => p.geometry.attributes.position.count === 2);
     expect(base).toBeDefined();
-    expect(base.material.size).toBeCloseTo(1.7); // 0.017 globe radii x 100-unit globe radius
+    expect(base.material.size).toBeCloseTo(0.017); // 0.017 globe radii x the mocked unit globe radius
     expect(base.material.opacity).toBeLessThan(0.5);
     const pos = base.geometry.attributes.position.array as number[];
     expect(pos[2]).toBeCloseTo(420 / 6371, 3);
@@ -590,6 +608,30 @@ describe("GlobeView", () => {
     // Sat 1 projects to (640, 390) in the 800x600 test rect.
     fireEvent.click(mapEl, { clientX: 640, clientY: 390 });
     expect(onSelect).toHaveBeenCalledWith(2);
+  });
+
+  it("does not hover or click a far-side point projected over Earth, while keeping front and limb points interactive", () => {
+    cameraState.z = 300;
+    coordsForTest.current = (lat, lng) => ({ x: lat, y: 0, z: lng });
+    const occlusionPositions = [
+      { catnr: 10, lat: -20, lon: -120, altKm: 420, velocityKms: 7.6, color: "#38bdf8", selected: false },
+      { catnr: 11, lat: 20, lon: 120, altKm: 420, velocityKms: 7.6, color: "#38bdf8", selected: false },
+      { catnr: 12, lat: 110, lon: 0, altKm: 420, velocityKms: 7.6, color: "#38bdf8", selected: false },
+    ];
+    const onSelect = vi.fn();
+    globeRadiusForTest.current = 100;
+    const { container, mapEl } = renderGlobe({ positions: occlusionPositions, satNames: { 10: "Behind", 11: "Front", 12: "Limb" }, selectedCatnr: 10, onSelect });
+    fireEvent.pointerMove(mapEl, { clientX: 320, clientY: 300 });
+    expect((mapEl as HTMLElement).style.cursor).toBe("");
+    expect(container.querySelector(".globe-tooltip")?.classList.contains("visible")).toBe(false);
+    fireEvent.click(mapEl, { clientX: 320, clientY: 300 });
+    expect(onSelect).not.toHaveBeenCalled();
+    fireEvent.click(mapEl, { clientX: 480, clientY: 300 });
+    fireEvent.click(mapEl, { clientX: 840, clientY: 300 });
+    expect(onSelect).toHaveBeenNthCalledWith(1, 11);
+    expect(onSelect).toHaveBeenNthCalledWith(2, 12);
+    rafCallbacks.shift()?.(1000);
+    expect((container.querySelector(".selected-map-label") as HTMLElement).style.display).toBe("none");
   });
 
   it("focuses and follows a satellite with distinct camera transitions", () => {
@@ -818,7 +860,7 @@ describe("GlobeView", () => {
   it("floors the highlight to a minimum pixel size at far zoom and scales it with the globe up close", () => {
     const { mapEl } = renderGlobe({ selectedCatnr: 1 });
     const base = createdPoints.find((p) => p.geometry.attributes.position.count === 2)!;
-    expect(base.material.size).toBeCloseTo(1.7); // 0.017 globe radii x 100-unit globe radius
+    expect(base.material.size).toBeCloseTo(0.017); // 0.017 globe radii x the mocked unit globe radius
     const dot = threeLineMocks.createdSprites[0];
     expect(dot.visible).toBe(true);
     const frame = (now: number) => rafCallbacks.shift()!(now);
@@ -831,11 +873,11 @@ describe("GlobeView", () => {
     expect(dot.scale.x).toBeCloseTo(floorAt(200), 4);
 
     // close zoom (z=2, same pulse phase): the marker outgrows the floor and scales with the globe
-    // at ~1.3x the base dot size (both in globe-radius units x the 100-unit radius)
+    // at ~1.3x the base dot size (both in globe-radius units x the mocked unit radius)
     cameraState.z = 2;
     controlsListeners.change?.();
     frame(1000 + 2 * Math.PI * 600);
-    expect(dot.scale.x).toBeCloseTo(dotSizeFor(2, 10, 0.017) * 100 * 1.3, 2);
+    expect(dot.scale.x).toBeCloseTo(dotSizeFor(2, 10, 0.017) * 1.3, 2);
     mapEl; // referenced to keep renderGlobe's container rect active
   });
 

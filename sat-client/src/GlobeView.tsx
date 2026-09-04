@@ -100,6 +100,27 @@ export function cameraFacingBrightness(
   return 0.45 + 0.55 * smooth;
 }
 
+/**
+ * Whether the segment from camera to a world point clears the rendered Earth sphere. This is a
+ * scalar, allocation-free ray/sphere test because pointer picking evaluates every live satellite.
+ */
+export function isVisibleAboveGlobe(
+  point: { x: number; y: number; z: number },
+  camera: { x: number; y: number; z: number },
+  globeRadius: number
+): boolean {
+  const dx = point.x - camera.x;
+  const dy = point.y - camera.y;
+  const dz = point.z - camera.z;
+  const segmentLengthSquared = dx * dx + dy * dy + dz * dz;
+  if (segmentLengthSquared === 0) return true;
+  const closestT = Math.max(0, Math.min(1, -(camera.x * dx + camera.y * dy + camera.z * dz) / segmentLengthSquared));
+  const closestX = camera.x + dx * closestT;
+  const closestY = camera.y + dy * closestT;
+  const closestZ = camera.z + dz * closestT;
+  return closestX * closestX + closestY * closestY + closestZ * closestZ >= globeRadius * globeRadius;
+}
+
 // Screen-space picking radii (px) around the cursor; the nearest projected dot wins.
 const HOVER_THRESHOLD = 11;
 const CLICK_THRESHOLD = 14;
@@ -362,9 +383,14 @@ export default function GlobeView({
       const n = wc.length / 3;
       const dots: ScreenDot[] = new Array(n);
       for (let i = 0; i < n; i++) {
+        const point = { x: wc[i * 3], y: wc[i * 3 + 1], z: wc[i * 3 + 2] };
+        if (!isVisibleAboveGlobe(point, globe.camera().position, globeRadius)) {
+          dots[i] = { x: Number.POSITIVE_INFINITY, y: Number.POSITIVE_INFINITY, catnr: -1 };
+          continue;
+        }
         tmpVec.set(wc[i * 3], wc[i * 3 + 1], wc[i * 3 + 2]).project(globe.camera());
-        if (tmpVec.z > 1) {
-          // behind the camera — never a hit
+        if (tmpVec.z < -1 || tmpVec.z > 1) {
+          // outside the camera clip volume — never a hit
           dots[i] = { x: Number.POSITIVE_INFINITY, y: Number.POSITIVE_INFINITY, catnr: -1 };
           continue;
         }
@@ -510,14 +536,13 @@ export default function GlobeView({
         const selectedLabel = selectedLabelRef.current;
         const selectedIndex = selectedIdxRef.current;
         if (selectedLabel && selectedIndex >= 0) {
-          tmpVec
-            .set(
-              lerpOutRef.current[selectedIndex * 3],
-              lerpOutRef.current[selectedIndex * 3 + 1],
-              lerpOutRef.current[selectedIndex * 3 + 2]
-            )
-            .project(globe.camera());
-          if (tmpVec.z <= 1) {
+          const point = {
+            x: lerpOutRef.current[selectedIndex * 3],
+            y: lerpOutRef.current[selectedIndex * 3 + 1],
+            z: lerpOutRef.current[selectedIndex * 3 + 2],
+          };
+          tmpVec.set(point.x, point.y, point.z).project(globe.camera());
+          if (isVisibleAboveGlobe(point, globe.camera().position, globeRadius) && tmpVec.z >= -1 && tmpVec.z <= 1) {
             selectedLabel.style.display = "block";
             selectedLabel.style.left = `${(tmpVec.x * 0.5 + 0.5) * container.clientWidth}px`;
             selectedLabel.style.top = `${(-tmpVec.y * 0.5 + 0.5) * container.clientHeight}px`;
