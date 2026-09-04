@@ -7,6 +7,7 @@ let loadHandler: (() => void) | null = null;
 const addSourceMock = vi.hoisted(() => vi.fn());
 const addLayerMock = vi.hoisted(() => vi.fn());
 const removeLayerMock = vi.hoisted(() => vi.fn());
+const fitBoundsMock = vi.hoisted(() => vi.fn());
 const addedLayers = vi.hoisted(() => [] as string[]);
 
 vi.mock("maplibre-gl", () => {
@@ -32,6 +33,10 @@ vi.mock("maplibre-gl", () => {
     }
     removeSource() {}
     flyTo() {}
+    fitBounds(...args: unknown[]) { fitBoundsMock(...args); }
+    getZoom() { return 4; }
+    hasImage() { return false; }
+    addImage() {}
     remove() {}
     getSource() {
       return undefined;
@@ -55,6 +60,7 @@ describe("MapView", () => {
     addSourceMock.mockClear();
     addLayerMock.mockClear();
     removeLayerMock.mockClear();
+    fitBoundsMock.mockClear();
     addedLayers.length = 0;
   });
 
@@ -80,6 +86,11 @@ describe("MapView", () => {
   it("registers a click handler on the map", () => {
     render(<MapView bounds={[-10, 35, 30, 60]} flights={[]} track={null} onSelect={() => {}} />);
     expect(capturedClickHandler).not.toBeNull();
+  });
+
+  it("fits the actual bounds of the selected region", () => {
+    render(<MapView bounds={[-125, 24, -66, 50]} flights={[]} track={null} onSelect={() => {}} />);
+    expect(fitBoundsMock).toHaveBeenCalledWith([[-125, 24], [-66, 50]], expect.objectContaining({ duration: 700 }));
   });
 
   it("waits for the style load event before adding sources", () => {
