@@ -53,6 +53,10 @@ export default function App() {
     setStale(Boolean(body.stale));
     setLoadError(false);
   }, []);
+  const selectFlight = useCallback((icao24: string | null) => {
+    setSelectedIcao(icao24);
+    if (icao24) setQuery("");
+  }, []);
 
   useEffect(() => {
     let disposed = false;
@@ -182,23 +186,23 @@ export default function App() {
   const freshness = lastUpdated ? `${Math.max(0, Math.round((now - lastUpdated) / 1000))}s ago` : "Awaiting data";
 
   return <div className="app">
-    <MapView bounds={REGIONS[region].bounds} flights={visibleFlights} selectedIcao={selectedIcao} track={track} onSelect={(flight) => setSelectedIcao(flight?.icao24 ?? null)} />
+    <MapView bounds={REGIONS[region].bounds} flights={visibleFlights} selectedIcao={selectedIcao} track={track} onSelect={(flight) => selectFlight(flight?.icao24 ?? null)} />
     <header className="header"><div className="brand"><IconPlane aria-hidden="true" size={18} /> Flight tracker</div><div className="freshness" aria-live="polite">{loading ? "Updating…" : `Updated ${freshness}`}</div></header>
     <div className="controls">
       <label className="sr-only" htmlFor="region">Region</label>
       <select id="region" value={region} onChange={(event) => changeRegion(event.target.value)}>{Object.entries(REGIONS).map(([key, item]) => <option key={key} value={key}>{item.name}</option>)}</select>
-      <label className="search"><span className="sr-only">Search callsign or ICAO</span><input type="search" placeholder="Search callsign or ICAO" value={query} onChange={(event) => { setQuery(event.target.value); setActiveResultIndex(0); }} onKeyDown={(event) => {
+      <label className="search"><span className="sr-only">Search callsign or ICAO</span><input type="search" placeholder="Search flight" value={query} onChange={(event) => { setQuery(event.target.value); setActiveResultIndex(0); }} onKeyDown={(event) => {
         if (event.key === "ArrowDown" && searchResults.length) { event.preventDefault(); setActiveResultIndex((index) => Math.min(index + 1, searchResults.length - 1)); }
         if (event.key === "ArrowUp" && searchResults.length) { event.preventDefault(); setActiveResultIndex((index) => Math.max(index - 1, 0)); }
-        if (event.key === "Enter" && searchResults.length) { event.preventDefault(); setSelectedIcao(searchResults[activeResultIndex]?.icao24 ?? searchResults[0].icao24); }
+        if (event.key === "Enter" && searchResults.length) { event.preventDefault(); selectFlight(searchResults[activeResultIndex]?.icao24 ?? searchResults[0].icao24); }
       }} /></label>
       <button onClick={() => pollNowRef.current?.()} disabled={loading}>Refresh</button>
     </div>
     {normalizedQuery && searchResults.length > 0 && <div className="search-results" role="listbox" aria-label="Aircraft search results">
-      {searchResults.map((flight, index) => <button key={flight.icao24} role="option" aria-selected={index === activeResultIndex} className={index === activeResultIndex ? "active" : ""} onClick={() => setSelectedIcao(flight.icao24)}><span><strong>{flight.callsign?.trim() || flight.icao24.toUpperCase()}</strong><small>{flight.icao24.toUpperCase()}</small></span><small>{formatAltitude(flight.altitudeBaro)}</small></button>)}
+      {searchResults.map((flight, index) => <button key={flight.icao24} role="option" aria-selected={index === activeResultIndex} className={index === activeResultIndex ? "active" : ""} onClick={() => selectFlight(flight.icao24)}><span><strong>{flight.callsign?.trim() || flight.icao24.toUpperCase()}</strong><small>{flight.icao24.toUpperCase()}</small></span><small>{formatAltitude(flight.altitudeBaro)}</small></button>)}
     </div>}
     <aside className="legend" aria-label="Altitude legend"><strong>Altitude</strong><span><i className="low" />Under 3 km</span><span><i className="mid" />3–7 km</span><span><i className="high" />Over 7 km</span></aside>
-    <div className="map-status" aria-live="polite">
+    <div className={`map-status ${selected || selectedMissing ? "selection-open" : ""}`} aria-live="polite">
       {loading && flights.length === 0 && "Loading aircraft…"}
       {!loading && loadError && flights.length === 0 && "Unable to load aircraft for this region."}
       {!loading && !loadError && flights.length === 0 && "No aircraft reported in this region."}

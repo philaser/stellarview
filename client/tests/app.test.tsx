@@ -152,6 +152,8 @@ describe("App", () => {
     expect(screen.getByRole("option", { name: /EZY87MY/i })).toBeInTheDocument();
     await act(async () => { fireEvent.keyDown(search, { key: "Enter" }); });
     expect(screen.getByRole("heading", { name: "EZY87MY" })).toBeInTheDocument();
+    expect(search).toHaveValue("");
+    expect(screen.queryByRole("listbox", { name: "Aircraft search results" })).not.toBeInTheDocument();
     fireEvent.change(search, { target: { value: "missing" } });
     expect(screen.getByText("No aircraft match “missing” in this region.")).toBeInTheDocument();
   });
