@@ -6,20 +6,35 @@ interface Entry<T> {
 export class TtlCache<T> {
   private entries = new Map<string, Entry<T>>();
 
-  constructor(private ttlMs: number) {}
+  constructor(private ttlMs: number, private retainExpired = false) {}
 
   get(key: string): T | undefined {
     const entry = this.entries.get(key);
     if (!entry) return undefined;
     if (Date.now() > entry.expiresAt) {
-      this.entries.delete(key);
+      if (!this.retainExpired) this.entries.delete(key);
       return undefined;
     }
     return entry.value;
   }
 
+  getStale(key: string): T | undefined {
+    return this.entries.get(key)?.value;
+  }
+
   set(key: string, value: T): void {
     this.entries.set(key, { value, expiresAt: Date.now() + this.ttlMs });
+  }
+
+  setAt(key: string, value: T, cachedAt: number): void {
+    this.entries.set(key, { value, expiresAt: cachedAt + this.ttlMs });
+  }
+
+  setIfAbsent(key: string, value: T, cachedAt?: number): boolean {
+    if (this.entries.has(key)) return false;
+    if (cachedAt === undefined) this.set(key, value);
+    else this.setAt(key, value, cachedAt);
+    return true;
   }
 
   async getOrLoad(key: string, load: () => Promise<T>): Promise<T> {

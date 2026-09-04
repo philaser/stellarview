@@ -2,7 +2,7 @@ import { describe, it, expect, vi } from "vitest";
 import http from "http";
 import type { AddressInfo } from "net";
 import { execFile } from "child_process";
-import { readFile, writeFile } from "fs/promises";
+import { readFile, rename, stat, writeFile } from "fs/promises";
 import request from "supertest";
 import { createApp } from "../src/app";
 import type { FlightProvider, TrackSource } from "../src/providers/flight-provider";
@@ -15,7 +15,9 @@ vi.mock("child_process", async () => {
 
 vi.mock("fs/promises", () => ({
   writeFile: vi.fn().mockResolvedValue(undefined),
+  rename: vi.fn().mockResolvedValue(undefined),
   readFile: vi.fn().mockRejectedValue(new Error("no cache file")),
+  stat: vi.fn().mockRejectedValue(new Error("no cache metadata")),
 }));
 
 // promisify(execFile) resolves via the callback, so the mock must invoke it.
@@ -270,6 +272,7 @@ describe("GET /api/tle", () => {
     expect(res1.headers["x-tle-source"]).toBe("upstream");
     expect(res1.headers["x-tle-cache"]).toBe("miss");
     expect(Number(res1.headers["x-tle-fetched-at"])).toBeGreaterThan(0);
+    expect(vi.mocked(fetch).mock.calls[0][1]).toEqual(expect.objectContaining({ signal: expect.any(AbortSignal) }));
     const res2 = await request(app).get("/api/tle?catnr=25544,20580");
     expect(res2.status).toBe(200);
     expect(res2.headers["x-tle-source"]).toBe("upstream");
@@ -324,8 +327,12 @@ describe("GET /api/tle", () => {
     expect(String(vi.mocked(fetch).mock.calls[0][0])).toContain("GROUP=active");
     expect(vi.mocked(writeFile)).toHaveBeenCalledTimes(1);
     expect(vi.mocked(writeFile)).toHaveBeenCalledWith(
-      expect.stringContaining("tle-active.cache"),
-      expect.stringContaining("ISS (ZARYA)")
+      expect.stringContaining("tle-active.tmp.cache"),
+      expect.stringContaining("\"text\":\"ISS (ZARYA)")
+    );
+    expect(vi.mocked(rename)).toHaveBeenCalledWith(
+      expect.stringContaining("tle-active.tmp.cache"),
+      expect.stringContaining("tle-active.cache")
     );
     const res2 = await request(app).get("/api/tle?group=active");
     expect(res2.status).toBe(200);
@@ -335,17 +342,102 @@ describe("GET /api/tle", () => {
   });
 
   it("primes the group cache from the disk cache file on boot", async () => {
-    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: true, status: 200, text: async () => tleBlock }));
     vi.mocked(readFile).mockResolvedValueOnce(tleBlock);
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: false, status: 503, text: async () => "" }));
+    stubCurlFailure();
     const app = createApp({ provider: okProvider });
-    await new Promise((resolve) => setTimeout(resolve, 0));
     const res = await request(app).get("/api/tle?group=active");
     expect(res.status).toBe(200);
     expect(res.text).toContain("ISS (ZARYA)");
     expect(res.headers["x-tle-source"]).toBe("disk");
-    expect(res.headers["x-tle-cache"]).toBe("hit");
-    expect(Number(res.headers["x-tle-fetched-at"])).toBeGreaterThan(0);
-    expect(fetch).not.toHaveBeenCalled();
+    expect(res.headers["x-tle-cache"]).toBe("miss");
+    expect(res.headers["x-tle-fetched-at"]).toBe("unknown");
+    expect(res.headers["x-tle-stale"]).toBe("true");
+    expect(fetch).toHaveBeenCalledTimes(1);
+    vi.unstubAllGlobals();
+  });
+
+  it("preserves the persisted retrieval timestamp when priming a cache after restart", async () => {
+    const fetchedAt = Date.now() - 1_000;
+    vi.mocked(readFile).mockResolvedValueOnce(JSON.stringify({ text: tleBlock, fetchedAt }));
+    const app = createApp({ provider: okProvider });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    const res = await request(app).get("/api/tle?group=active");
+
+    expect(res.status).toBe(200);
+    expect(res.headers["x-tle-source"]).toBe("disk");
+    expect(res.headers["x-tle-fetched-at"]).toBe(String(fetchedAt));
+  });
+
+  it("derives a legacy disk cache timestamp from its file metadata", async () => {
+    const mtimeMs = Date.now() - 1_000;
+    vi.mocked(readFile).mockResolvedValueOnce(tleBlock);
+    vi.mocked(stat).mockResolvedValueOnce({ mtimeMs } as never);
+    const app = createApp({ provider: okProvider });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    const res = await request(app).get("/api/tle?group=active");
+
+    expect(res.status).toBe(200);
+    expect(res.headers["x-tle-fetched-at"]).toBe(String(mtimeMs));
+  });
+
+  it("refreshes an old disk catalog instead of granting it a new hot TTL", async () => {
+    const fetchedAt = Date.now() - 10_000;
+    vi.mocked(readFile).mockResolvedValueOnce(JSON.stringify({ text: tleBlock, fetchedAt }));
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: false, status: 503, text: async () => "" }));
+    stubCurlFailure();
+    const app = createApp({ provider: okProvider, tleCacheTtlMs: 1 });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    const res = await request(app).get("/api/tle?group=active");
+
+    expect(res.status).toBe(200);
+    expect(res.headers["x-tle-source"]).toBe("disk");
+    expect(res.headers["x-tle-cache"]).toBe("miss");
+    expect(res.headers["x-tle-fetched-at"]).toBe(String(fetchedAt));
+    expect(res.headers["x-tle-stale"]).toBe("true");
+    expect(fetch).toHaveBeenCalledTimes(1);
+    vi.unstubAllGlobals();
+  });
+
+  it("serves the expired last-good catalog with explicit stale metadata when refresh fails", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: true, status: 200, text: async () => tleBlock }));
+    const app = createApp({ provider: okProvider, tleCacheTtlMs: 1 });
+    const first = await request(app).get("/api/tle?group=active");
+    const fetchedAt = first.headers["x-tle-fetched-at"];
+    await new Promise((resolve) => setTimeout(resolve, 5));
+    vi.mocked(fetch).mockResolvedValue({ ok: false, status: 503, text: async () => "" } as Response);
+    stubCurlFailure();
+
+    const second = await request(app).get("/api/tle?group=active");
+
+    expect(second.status).toBe(200);
+    expect(second.text).toContain("ISS (ZARYA)");
+    expect(second.headers["x-tle-source"]).toBe("upstream");
+    expect(second.headers["x-tle-cache"]).toBe("miss");
+    expect(second.headers["x-tle-fetched-at"]).toBe(fetchedAt);
+    expect(second.headers["x-tle-stale"]).toBe("true");
+    vi.unstubAllGlobals();
+  });
+
+  it("keeps the last-good catalog when a 200 response is not TLE data", async () => {
+    vi.mocked(writeFile).mockClear();
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: true, status: 200, text: async () => tleBlock }));
+    const app = createApp({ provider: okProvider, tleCacheTtlMs: 1 });
+    const first = await request(app).get("/api/tle?group=active");
+    await new Promise((resolve) => setTimeout(resolve, 5));
+
+    for (const invalidCatalog of ["<html>temporarily unavailable</html>", ""]) {
+      vi.mocked(fetch).mockResolvedValue({ ok: true, status: 200, text: async () => invalidCatalog } as Response);
+      const res = await request(app).get("/api/tle?group=active");
+      expect(res.status).toBe(200);
+      expect(res.text).toBe(first.text);
+      expect(res.headers["x-tle-cache"]).toBe("miss");
+      expect(res.headers["x-tle-stale"]).toBe("true");
+    }
+    expect(vi.mocked(writeFile)).toHaveBeenCalledTimes(1);
     vi.unstubAllGlobals();
   });
 
@@ -369,6 +461,9 @@ describe("GET /api/tle", () => {
     expect(vi.mocked(execFile).mock.calls[0][0]).toBe("curl");
     const curlArgs = String(vi.mocked(execFile).mock.calls[0][1]);
     expect(curlArgs).toContain("GROUP=active");
+    expect(curlArgs).toContain("--connect-timeout");
+    expect(curlArgs).toContain("--max-time");
+    expect(vi.mocked(execFile).mock.calls[0][2]).toMatchObject({ timeout: 20_000 });
     vi.unstubAllGlobals();
   });
 });

@@ -26,6 +26,22 @@ describe("TtlCache", () => {
     vi.useRealTimers();
   });
 
+  it("discards expired entries unless stale retention is explicitly enabled", () => {
+    vi.useFakeTimers();
+    const ordinary = new TtlCache<number>(1000);
+    ordinary.set("a", 1);
+    vi.advanceTimersByTime(1001);
+    expect(ordinary.get("a")).toBeUndefined();
+    expect(ordinary.getStale("a")).toBeUndefined();
+
+    const retaining = new TtlCache<number>(1000, true);
+    retaining.set("a", 1);
+    vi.advanceTimersByTime(1001);
+    expect(retaining.get("a")).toBeUndefined();
+    expect(retaining.getStale("a")).toBe(1);
+    vi.useRealTimers();
+  });
+
   it("set stores a value retrievable by get", () => {
     const c = new TtlCache<number>(1000);
     c.set("a", 42);
