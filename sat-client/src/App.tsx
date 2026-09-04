@@ -1,6 +1,8 @@
-import { lazy, Suspense, useCallback, useEffect, useMemo, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   IconAdjustmentsHorizontal,
+  IconChevronDown,
+  IconChevronUp,
   IconClock,
   IconCurrentLocation,
   IconEye,
@@ -37,6 +39,9 @@ import { nightPolygon } from "./sat/terminator";
 import { useSimulationClock } from "./useSimulationClock";
 
 const FALLBACK_OBSERVER: ObserverPoint = { lat: 48.8566, lon: 2.3522, heightM: 0 };
+const CATALOG_REFRESH_MS = 15 * 60_000;
+const CATALOG_STALE_MS = 6 * 60 * 60_000;
+const REQUEST_TIMEOUT_MS = 35_000;
 const MapView = lazy(() => import("./MapView"));
 
 interface CatalogStatus {
@@ -44,8 +49,10 @@ interface CatalogStatus {
   error: boolean;
   fetchedAt: number | null;
   source: string | null;
-  cache: string | null;
+  stale: boolean;
 }
+
+type ObserverSource = "device" | "map" | "manual" | "reference";
 
 const normalizeObserver = (lat: number, lon: number): ObserverPoint => ({
   lat,
@@ -53,18 +60,35 @@ const normalizeObserver = (lat: number, lon: number): ObserverPoint => ({
   heightM: 0,
 });
 
-function formatCatalogAge(fetchedAt: number | null): string {
-  if (fetchedAt === null) return "Awaiting catalog";
-  const minutes = Math.max(0, Math.floor((Date.now() - fetchedAt) / 60_000));
-  if (minutes < 1) return "Updated now";
-  if (minutes < 60) return `Updated ${minutes}m ago`;
+function formatCatalogAge(fetchedAt: number | null, now: number): string {
+  if (fetchedAt === null) return "Download time unknown";
+  const minutes = Math.max(0, Math.floor((now - fetchedAt) / 60_000));
+  if (minutes < 1) return "Downloaded now";
+  if (minutes < 60) return `Downloaded ${minutes}m ago`;
   const hours = Math.floor(minutes / 60);
-  return `Updated ${hours}h ago`;
+  return `Downloaded ${hours}h ago`;
 }
 
-function catalogSourceLabel(source: string | null, cache: string | null): string {
-  if (source === "disk") return "DISK FALLBACK";
-  if (cache === "hit") return "CACHE HIT";
+function formatElementEpoch(line1: string): string {
+  const raw = line1.slice(18, 32).trim();
+  const year = Number(raw.slice(0, 2));
+  const day = Number(raw.slice(2));
+  if (!Number.isFinite(year) || !Number.isFinite(day)) return "Unknown";
+  const fullYear = year >= 57 ? 1900 + year : 2000 + year;
+  const epoch = new Date(Date.UTC(fullYear, 0, 1) + (day - 1) * 86_400_000);
+  return epoch.toLocaleString("en-GB", {
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+    timeZone: "UTC",
+    hour12: false,
+  });
+}
+
+function catalogSourceLabel(source: string | null): string {
+  if (source === "disk") return "SAVED CATALOG";
   return "CELESTRAK";
 }
 
@@ -85,12 +109,18 @@ export default function App() {
     error: false,
     fetchedAt: null,
     source: null,
-    cache: null,
+    stale: false,
   });
   const [positions, setPositions] = useState<SatDot[]>([]);
   const [orbits, setOrbits] = useState<Record<number, [number, number][]>>({});
   const [selectedCatnr, setSelectedCatnr] = useState<number | null>(null);
   const [observer, setObserver] = useState<ObserverPoint | null>(null);
+  const [observerSource, setObserverSource] = useState<ObserverSource | null>(null);
+  const [observerStatus, setObserverStatus] = useState<"idle" | "locating" | "ready" | "unavailable">("idle");
+  const [manualLat, setManualLat] = useState("");
+  const [manualLon, setManualLon] = useState("");
+  const [manualObserverError, setManualObserverError] = useState<string | null>(null);
+  const [observerSetupOpen, setObserverSetupOpen] = useState(false);
   const [passes, setPasses] = useState<Pass[] | null>(null);
   const [followCatnr, setFollowCatnr] = useState<number | null>(null);
   const [regimes, setRegimes] = useState<Set<Regime>>(new Set(["leo", "meo", "geo"]));
@@ -103,33 +133,67 @@ export default function App() {
   const [controlsOpen, setControlsOpen] = useState(false);
   const [mode, setMode] = useState<"2d" | "3d">("3d");
   const [locked, setLocked] = useState(false);
+  const [detailsExpanded, setDetailsExpanded] = useState(false);
+  const [revealMessage, setRevealMessage] = useState<string | null>(null);
+  const [wallNow, setWallNow] = useState(() => Date.now());
+  const searchRef = useRef<HTMLInputElement>(null);
+  const filtersButtonRef = useRef<HTMLButtonElement>(null);
+  const catalogRequestRef = useRef<AbortController | null>(null);
+  const mountedRef = useRef(true);
+  const detailsCloseRef = useRef<HTMLButtonElement>(null);
+  const focusDetailsRef = useRef(false);
   const simulation = useSimulationClock();
 
   const loadCatalog = useCallback(async () => {
+    if (catalogRequestRef.current) return;
     setCatalog((current) => ({ ...current, loading: true, error: false }));
+    const controller = new AbortController();
+    catalogRequestRef.current = controller;
+    const timeout = window.setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
     try {
-      const res = await fetch("/api/tle?group=active");
+      const res = await fetch("/api/tle?group=active", { signal: controller.signal });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const text = await res.text();
       const next = parseTleBlock(text).map(annotate);
+      if (next.length === 0) throw new Error("Catalog contained no valid satellites");
+      if (!mountedRef.current || catalogRequestRef.current !== controller) return;
       const getHeader = (name: string) => res.headers?.get?.(name) ?? null;
       const fetchedHeader = Number(getHeader("X-TLE-Fetched-At"));
       setSats(next);
       setCatalog({
         loading: false,
         error: false,
-        fetchedAt: Number.isFinite(fetchedHeader) && fetchedHeader > 0 ? fetchedHeader : Date.now(),
+        fetchedAt: Number.isFinite(fetchedHeader) && fetchedHeader > 0 ? fetchedHeader : null,
         source: getHeader("X-TLE-Source") ?? "upstream",
-        cache: getHeader("X-TLE-Cache"),
+        stale: getHeader("X-TLE-Stale") === "true",
       });
     } catch {
-      setCatalog((current) => ({ ...current, loading: false, error: true }));
+      if (mountedRef.current && catalogRequestRef.current === controller) {
+        setCatalog((current) => ({ ...current, loading: false, error: true }));
+      }
+    } finally {
+      window.clearTimeout(timeout);
+      if (catalogRequestRef.current === controller) catalogRequestRef.current = null;
     }
   }, []);
 
   useEffect(() => {
+    mountedRef.current = true;
     void loadCatalog();
+    const refresh = window.setInterval(() => void loadCatalog(), CATALOG_REFRESH_MS);
+    return () => {
+      window.clearInterval(refresh);
+      mountedRef.current = false;
+      const activeRequest = catalogRequestRef.current;
+      catalogRequestRef.current = null;
+      activeRequest?.abort();
+    };
   }, [loadCatalog]);
+
+  useEffect(() => {
+    const ageClock = window.setInterval(() => setWallNow(Date.now()), 60_000);
+    return () => window.clearInterval(ageClock);
+  }, []);
 
   const positionTimeMs = Math.floor(simulation.time.getTime() / 2_000) * 2_000;
   const positionTime = useMemo(() => new Date(positionTimeMs), [positionTimeMs]);
@@ -213,21 +277,26 @@ export default function App() {
     setPositions(next);
   }, [visibleSats, selectedCatnr, positionTime]);
 
-  useEffect(() => {
+  const requestObserver = useCallback(() => {
     if (!navigator.geolocation) {
-      setObserver(FALLBACK_OBSERVER);
+      setObserverStatus("unavailable");
       return;
     }
+    setObserverStatus("locating");
     navigator.geolocation.getCurrentPosition(
-      (pos) => setObserver(normalizeObserver(pos.coords.latitude, pos.coords.longitude)),
-      () => setObserver(FALLBACK_OBSERVER)
+      (pos) => {
+        setObserver(normalizeObserver(pos.coords.latitude, pos.coords.longitude));
+        setObserverSource("device");
+        setObserverStatus("ready");
+      },
+      () => setObserverStatus("unavailable"),
+      { enableHighAccuracy: false, timeout: 8_000, maximumAge: 300_000 }
     );
   }, []);
 
   useEffect(() => {
     if (selectedCatnr === null || observer === null) {
       setPasses(null);
-      setFollowCatnr(null);
       return;
     }
     const sat = sats.find((s) => s.catnr === selectedCatnr);
@@ -261,17 +330,40 @@ export default function App() {
       return next;
     });
 
-  const selectSatellite = (catnr: number) => {
+  const selectSatellite = (catnr: number, moveFocusToDetails = false) => {
+    const satellite = sats.find((candidate) => candidate.catnr === catnr);
+    let revealed = false;
+    if (satellite && filterMode === "orbit" && !regimes.has(satellite.regime)) {
+      setRegimes((previous) => new Set(previous).add(satellite.regime));
+      revealed = true;
+    }
+    if (satellite && filterMode === "type" && !constellations.has(satellite.constellation)) {
+      setConstellations((previous) => new Set(previous).add(satellite.constellation));
+      revealed = true;
+    }
     setSelectedCatnr(catnr);
     setFocus({ catnr, ts: Date.now() });
+    setDetailsExpanded(false);
+    setObserverSetupOpen(false);
+    setRevealMessage(revealed && satellite ? `Filters updated to show ${satellite.name}` : null);
     setSearch("");
     setControlsOpen(false);
+    focusDetailsRef.current = moveFocusToDetails;
   };
+
+  useEffect(() => {
+    if (selectedCatnr !== null && focusDetailsRef.current) {
+      detailsCloseRef.current?.focus();
+      focusDetailsRef.current = false;
+    }
+  }, [selectedCatnr]);
 
   const closeSelection = () => {
     setSelectedCatnr(null);
     setFollowCatnr(null);
     setLocked(false);
+    setDetailsExpanded(false);
+    setRevealMessage(null);
   };
 
   const openControls = () => {
@@ -279,7 +371,13 @@ export default function App() {
     setControlsOpen((open) => !open);
   };
 
+  const closeSearch = () => {
+    setSearch("");
+    filtersButtonRef.current?.focus();
+  };
+
   const handleSearchKey = (event: React.KeyboardEvent<HTMLInputElement>) => {
+    if (event.key === "Escape") return;
     if (searchResults.length === 0) return;
     if (event.key === "ArrowDown") {
       event.preventDefault();
@@ -289,15 +387,58 @@ export default function App() {
       setSearchIndex((index) => (index - 1 + searchResults.length) % searchResults.length);
     } else if (event.key === "Enter") {
       event.preventDefault();
-      selectSatellite(searchResults[searchIndex].catnr);
-    } else if (event.key === "Escape") {
-      setSearch("");
+      selectSatellite(searchResults[searchIndex].catnr, true);
     }
   };
 
-  const catalogState = catalog.error
+  useEffect(() => {
+    const handleEscape = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      if (search !== "") {
+        closeSearch();
+      } else if (controlsOpen) {
+        setControlsOpen(false);
+        filtersButtonRef.current?.focus();
+      } else if (selectedCatnr !== null) {
+        closeSelection();
+        filtersButtonRef.current?.focus();
+      }
+    };
+    document.addEventListener("keydown", handleEscape);
+    return () => document.removeEventListener("keydown", handleEscape);
+  }, [controlsOpen, search, selectedCatnr]);
+
+  const setNamedObserver = (point: ObserverPoint, source: ObserverSource) => {
+    setObserver(normalizeObserver(point.lat, point.lon));
+    setObserverSource(source);
+    setObserverStatus("ready");
+    setObserverSetupOpen(false);
+    setManualObserverError(null);
+  };
+
+  const submitManualObserver = (event: React.FormEvent) => {
+    event.preventDefault();
+    if (manualLat.trim() === "" || manualLon.trim() === "") {
+      setManualObserverError("Enter both latitude and longitude.");
+      return;
+    }
+    const lat = Number(manualLat);
+    const lon = Number(manualLon);
+    if (!Number.isFinite(lat) || lat < -90 || lat > 90) {
+      setManualObserverError("Latitude must be between -90 and 90 degrees.");
+      return;
+    }
+    if (!Number.isFinite(lon) || lon < -180 || lon > 180) {
+      setManualObserverError("Longitude must be between -180 and 180 degrees.");
+      return;
+    }
+    setNamedObserver({ lat, lon, heightM: 0 }, "manual");
+  };
+
+  const catalogTooOld = catalog.fetchedAt !== null && wallNow - catalog.fetchedAt >= CATALOG_STALE_MS;
+  const catalogState = catalog.error || catalog.stale || catalogTooOld
     ? sats.length > 0 ? "STALE" : "OFFLINE"
-    : catalog.loading ? "SYNCING" : catalog.source === "disk" ? "CACHED" : "FRESH";
+    : catalog.loading ? "SYNCING" : catalog.fetchedAt === null ? "UNKNOWN" : catalog.source === "disk" ? "CACHED" : "FRESH";
   const catalogStateLabel = `CATALOG ${catalogState}`;
   const utcTime = simulation.time.toLocaleTimeString("en-GB", {
     hour: "2-digit",
@@ -311,9 +452,20 @@ export default function App() {
     year: "numeric",
     timeZone: "UTC",
   });
+  const chronologicalPasses = passes
+    ? [...passes].sort((first, second) => first.start.getTime() - second.start.getTime())
+    : null;
+  const observerName = observerSource === "device"
+    ? "your location"
+    : observerSource === "map"
+      ? "map observer"
+      : observerSource === "manual"
+        ? "manual observer"
+        : "Paris reference";
 
   return (
-    <div className="app">
+    <div className={`app ${selected && !controlsOpen && search === "" ? "selection-open" : ""}`}>
+      <div className="visualization-stage">
       <Suspense fallback={<div className="map-loading">Loading map renderer…</div>}>
         {mode === "2d" ? (
           <MapView
@@ -321,10 +473,11 @@ export default function App() {
             orbits={selected && orbits[selected.catnr] ? { [selected.catnr]: orbits[selected.catnr] } : {}}
             observer={observer ? { lat: observer.lat, lon: observer.lon } : null}
             onSelect={selectSatellite}
-            onSetObserver={(lat, lon) => setObserver(normalizeObserver(lat, lon))}
+            onSetObserver={(lat, lon) => setNamedObserver({ lat, lon, heightM: 0 }, "map")}
             followCatnr={followCatnr}
             focus={focus}
             night={showNight ? night : null}
+            onStopFollow={() => setFollowCatnr(null)}
           />
         ) : (
           <GlobeView
@@ -335,11 +488,14 @@ export default function App() {
             followCatnr={followCatnr}
             focus={focus}
             showNight={showNight}
+            time={orbitTime}
             locked={locked}
             onSelect={selectSatellite}
+            onStopFollow={() => setFollowCatnr(null)}
           />
         )}
       </Suspense>
+      </div>
 
       <header className="mission-hud" aria-label="Satellite tracking status">
         <div className="brand-lockup">
@@ -349,15 +505,21 @@ export default function App() {
             <small>ACTIVE SATELLITE NETWORK</small>
           </span>
         </div>
+        <div className="view-switch" aria-label="View mode">
+          <button aria-label="Show 3D globe" aria-pressed={mode === "3d"} onClick={() => setMode("3d")}>
+            <IconWorld size={17} stroke={1.8} /><span>Globe</span>
+          </button>
+          <button aria-label="Show 2D map" aria-pressed={mode === "2d"} onClick={() => setMode("2d")}>
+            <IconMap2 size={17} stroke={1.8} /><span>Map</span>
+          </button>
+        </div>
         <div className={`catalog-state state-${catalogState.toLowerCase()}`}>
           <span className="live-dot" aria-hidden="true" />
           <span>
             <strong>{catalogStateLabel}</strong>
-            <small>{formatCatalogAge(catalog.fetchedAt)} · {catalogSourceLabel(catalog.source, catalog.cache)}</small>
+            <small>{formatCatalogAge(catalog.fetchedAt, wallNow)} · {catalogSourceLabel(catalog.source)}</small>
           </span>
         </div>
-      </header>
-
       <div className="time-hud" aria-live="polite">
         <IconClock size={16} stroke={1.8} />
         <span>
@@ -366,14 +528,16 @@ export default function App() {
         </span>
         <span
           className={`time-mode ${simulation.mode}`}
-          aria-label={simulation.mode === "live" ? "Real-time satellite positions" : "Simulation paused"}
+          aria-label={simulation.mode === "live" ? "Real-time propagation from orbital elements" : "Simulation paused"}
         >
           {simulation.mode === "live" ? "REAL-TIME" : "PAUSED"}
         </span>
       </div>
+      </header>
 
       <div className="dock" aria-label="Map controls">
         <button
+          ref={filtersButtonRef}
           className={`dock-item icon-button ${controlsOpen ? "active" : ""}`}
           aria-label="Toggle filters"
           aria-expanded={controlsOpen}
@@ -383,16 +547,6 @@ export default function App() {
         >
           <IconAdjustmentsHorizontal size={19} stroke={1.8} />
         </button>
-        <button
-          className="dock-item icon-button"
-          aria-label={mode === "2d" ? "Show 3D globe" : "Show 2D map"}
-          title={mode === "2d" ? "Show 3D globe" : "Show 2D map"}
-          data-tooltip={mode === "2d" ? "3D globe" : "2D map"}
-          onClick={() => setMode((current) => (current === "2d" ? "3d" : "2d"))}
-        >
-          {mode === "2d" ? <IconWorld size={19} stroke={1.8} /> : <IconMap2 size={19} stroke={1.8} />}
-        </button>
-        <span className="dock-divider" aria-hidden="true" />
         <button
           className={`dock-item simulation-button ${simulation.mode === "paused" ? "active" : ""}`}
           aria-label={simulation.mode === "live" ? "Pause simulation" : "Resume live simulation"}
@@ -425,10 +579,11 @@ export default function App() {
         <label className="dock-search-wrap">
           <IconSearch size={17} stroke={1.8} aria-hidden="true" />
           <input
+            ref={searchRef}
             className="dock-search"
             aria-label="Search satellites"
             aria-controls="satellite-results"
-            aria-expanded={searchResults.length > 0}
+            aria-expanded={search.trim() !== ""}
             placeholder="Search name or NORAD ID"
             value={search}
             onFocus={() => setControlsOpen(false)}
@@ -436,7 +591,7 @@ export default function App() {
             onKeyDown={handleSearchKey}
           />
           {search !== "" && (
-            <button type="button" className="search-clear" aria-label="Clear search" onClick={() => setSearch("")}>
+            <button type="button" className="search-clear" aria-label="Close search" onClick={closeSearch}>
               <IconX size={15} stroke={1.8} />
             </button>
           )}
@@ -545,59 +700,65 @@ export default function App() {
             </div>
           </section>
         )}
+        {visibleSats.length === 0 && sats.length > 0 && (
+          <div className="empty-filter" role="status">
+            <span>No satellites are visible with these filters.</span>
+            <button onClick={() => filterMode === "orbit"
+              ? setRegimes(new Set(["leo", "meo", "geo"]))
+              : setConstellations(new Set(CONSTELLATIONS))}
+            >Show all satellites</button>
+          </div>
+        )}
       </section>
 
-      {searchResults.length > 0 && !controlsOpen && (
+      {search.trim() !== "" && !controlsOpen && (
         <section id="satellite-results" className="panel results-list" aria-label="Satellite search results">
           <div className="panel-kicker">Search results</div>
-          {searchResults.map((satellite, index) => (
+          {searchResults.length > 0 ? searchResults.map((satellite, index) => (
             <button
               key={satellite.catnr}
+              aria-label={`${satellite.name} NORAD ${satellite.catnr}`}
               className={`result-row ${index === searchIndex ? "active" : ""}`}
               onMouseEnter={() => setSearchIndex(index)}
-              onClick={() => selectSatellite(satellite.catnr)}
+              onClick={() => selectSatellite(satellite.catnr, true)}
             >
               <span className="result-icon"><IconSatellite size={16} stroke={1.8} /></span>
               <span><strong>{satellite.name}</strong><small>NORAD {satellite.catnr} · {satellite.regime.toUpperCase()}</small></span>
               <IconTarget size={16} stroke={1.7} />
             </button>
-          ))}
+          )) : (
+            <div className="search-empty" role="status">
+              <IconSearch size={20} stroke={1.7} />
+              <strong>No satellites match “{search.trim()}”</strong>
+              <small>Try a satellite name or NORAD catalog number.</small>
+              <button onClick={closeSearch}>Close search</button>
+            </div>
+          )}
           {searchResults.length === 20 && <div className="results-more">Refine your search to see more</div>}
         </section>
       )}
 
-      {selected && observer && !controlsOpen && searchResults.length === 0 && (
-        <section className="panel sat-panel" aria-label={`${selected.name} details`}>
+      {selected && !controlsOpen && search === "" && (
+        <section className={`panel sat-panel ${detailsExpanded ? "expanded" : ""}`} aria-label={`${selected.name} details`}>
           <div className="panel-header">
             <div className="panel-title">
               <span className="status-dot" style={{ background: REGIME_COLORS[selected.regime] }} />
               <span>
-                <span className="panel-kicker">Tracked object</span>
+                <span className="panel-kicker">{selected.regime.toUpperCase()} · NORAD {selected.catnr}</span>
                 <h2>{selected.name}</h2>
               </span>
             </div>
-            <button className="panel-close" aria-label="Close" title="Close" onClick={closeSelection}>
+            <button ref={detailsCloseRef} className="panel-close" aria-label="Close" title="Close" onClick={closeSelection}>
               <IconX size={17} stroke={1.8} />
             </button>
           </div>
           <div className="position-readout">
-            <div><small>LAT</small><strong>{pos ? `${pos.lat.toFixed(2)}°` : "…"}</strong></div>
-            <div><small>LON</small><strong>{pos ? `${pos.lon.toFixed(2)}°` : "…"}</strong></div>
-            <div><small>ALT</small><strong>{pos ? `${pos.altKm.toFixed(0)} km` : "…"}</strong></div>
+            <div><small>ALTITUDE</small><strong>{pos ? `${pos.altKm.toFixed(0)} km` : "…"}</strong></div>
+            <div><small>SPEED</small><strong>{pos?.velocityKms ? `${pos.velocityKms.toFixed(2)} km/s` : "…"}</strong></div>
           </div>
-          <div className="sat-rows">
-            <div className="row"><span>Orbit class</span><span>{selected.regime.toUpperCase()}</span></div>
-            <div className="row"><span>Network</span><span className="constellation-label">{selected.constellation}</span></div>
-            <div className="row"><span>NORAD ID</span><span>{selected.catnr}</span></div>
-            <div className="row"><span>Velocity</span><span>{pos ? `${pos.velocityKms?.toFixed(2)} km/s` : "…"}</span></div>
-            <div className="row"><span>Period</span><span>{Math.round(selected.periodS / 60)} min</span></div>
-            <div className="row"><span>Inclination</span><span>{selected.inclinationDeg.toFixed(1)}°</span></div>
-            <div className="row"><span>Visible now</span>
-              <span className={visibility?.visible ? "val-ok" : "val-warn"}>
-                {visibility ? (visibility.visible ? "Yes" : `No · ${visibility.reason}`) : "…"}
-              </span>
-            </div>
-          </div>
+          <div className="ground-position">Ground position <span>{pos ? `${pos.lat.toFixed(2)}°, ${pos.lon.toFixed(2)}°` : "Calculating…"}</span></div>
+          <p className="prediction-note">Predicted position at the simulation time from published orbital elements.</p>
+          {revealMessage && <div className="reveal-notice" role="status">{revealMessage}</div>}
           <div className="panel-actions">
             <button className="action-btn" onClick={() => setFocus({ catnr: selected.catnr, ts: Date.now() })}>
               <IconTarget size={16} stroke={1.8} /> Focus
@@ -613,22 +774,79 @@ export default function App() {
               {locked ? "Unlock" : "Lock"}
             </button>
           </div>
-          {passes && passes.length > 0 && (
-            <div className="passes">
-              <div className="section-title">
-                <IconEye size={14} stroke={1.8} /> Strongest upcoming passes <small>UTC</small>
+          {observer ? (
+            <div className="observer-summary">
+              <div>
+                <span>Visible now from {observerName}</span>
+                <strong className={visibility?.visible ? "val-ok" : "val-warn"}>
+                  {visibility ? (visibility.visible ? "Yes" : `No · ${visibility.reason}`) : "Calculating…"}
+                </strong>
               </div>
-              <div className="passes-list">
-                {passes.slice(0, 5).map((pass, index) => (
-                  <div key={index} className="pass-row">
-                    <span className="pass-time">{formatPassTime(pass.start)}</span>
-                    <span className="pass-bar-track">
-                      <span className="pass-bar" style={{ width: `${Math.min(100, (pass.maxElevationDeg / 90) * 100)}%` }} />
-                    </span>
-                    <span className="pass-elev">{pass.maxElevationDeg.toFixed(0)}°</span>
+              <small>{observer.lat.toFixed(2)}°, {observer.lon.toFixed(2)}°</small>
+              <button className="observer-change" onClick={() => { setObserver(null); setObserverSource(null); setObserverStatus("idle"); setObserverSetupOpen(true); }}>Change observer</button>
+            </div>
+          ) : (
+            <div className={`observer-setup ${observerSetupOpen ? "open" : "collapsed"}`}>
+              <div className="observer-prompt">
+                <span><strong>Observer location</strong><small>Needed for visibility and pass predictions.</small></span>
+                <button type="button" aria-expanded={observerSetupOpen} onClick={() => setObserverSetupOpen((open) => !open)}>
+                  {observerSetupOpen ? "Cancel" : "Set observer location"}
+                </button>
+              </div>
+              {observerSetupOpen && (
+                <div className="observer-options">
+                  <small>{observerStatus === "locating"
+                    ? "Requesting your approximate location…"
+                    : observerStatus === "unavailable"
+                      ? "Location was unavailable. Choose a reference or enter coordinates."
+                      : "Choose your location, use the named reference, or enter coordinates."}</small>
+                  <div className="observer-actions">
+                    <button type="button" onClick={requestObserver}>Use my location</button>
+                    <button type="button" onClick={() => setNamedObserver(FALLBACK_OBSERVER, "reference")}>Use Paris reference</button>
                   </div>
-                ))}
+                  <form className="coordinate-form" onSubmit={submitManualObserver}>
+                    <label>Latitude<input aria-label="Observer latitude" inputMode="decimal" value={manualLat} onChange={(event) => setManualLat(event.target.value)} placeholder="-90 to 90" /></label>
+                    <label>Longitude<input aria-label="Observer longitude" inputMode="decimal" value={manualLon} onChange={(event) => setManualLon(event.target.value)} placeholder="-180 to 180" /></label>
+                    <button type="submit">Set observer</button>
+                    {manualObserverError && <div className="coordinate-error" role="alert">{manualObserverError}</div>}
+                  </form>
+                </div>
+              )}
+            </div>
+          )}
+          <button className="details-toggle" aria-expanded={detailsExpanded} onClick={() => setDetailsExpanded((expanded) => !expanded)}>
+            {detailsExpanded ? <IconChevronUp size={16} /> : <IconChevronDown size={16} />}
+            {detailsExpanded ? "Hide technical details" : "Show technical details"}
+          </button>
+          {detailsExpanded && (
+            <div className="technical-details">
+              <div className="sat-rows">
+                <div className="row"><span>Network</span><span className="constellation-label">{selected.constellation}</span></div>
+                <div className="row"><span>Velocity</span><span>{pos?.velocityKms ? `${pos.velocityKms.toFixed(2)} km/s` : "…"}</span></div>
+                <div className="row"><span>Period</span><span>{Math.round(selected.periodS / 60)} min</span></div>
+                <div className="row"><span>Inclination</span><span>{selected.inclinationDeg.toFixed(1)}°</span></div>
+                <div className="row"><span>Element epoch</span><span>{formatElementEpoch(selected.line1)} UTC</span></div>
               </div>
+              <div className="display-disclosure">
+                Globe altitude is compressed for readability. The violet line is a projected ground track, not a true-scale 3D orbit.
+              </div>
+              {observer && (
+                <div className="passes">
+                  <div className="section-title"><IconEye size={14} stroke={1.8} /> Upcoming passes <small>UTC</small></div>
+                  <p className="pass-explainer">Prediction from orbital elements for {observerName}, in chronological order.</p>
+                  {chronologicalPasses && chronologicalPasses.length > 0 ? (
+                    <div className="passes-list">
+                      {chronologicalPasses.slice(0, 5).map((pass) => (
+                        <div key={pass.start.getTime()} className="pass-row">
+                          <span className="pass-time">{formatPassTime(pass.start)}</span>
+                          <span className="pass-bar-track"><span className="pass-bar" style={{ width: `${Math.min(100, (pass.maxElevationDeg / 90) * 100)}%` }} /></span>
+                          <span className="pass-elev" aria-label={`${pass.maxElevationDeg.toFixed(0)} degrees maximum elevation`}>{pass.maxElevationDeg.toFixed(0)}°</span>
+                        </div>
+                      ))}
+                    </div>
+                  ) : <div className="passes-empty">No passes above 5° in the next 48 hours.</div>}
+                </div>
+              )}
             </div>
           )}
         </section>
@@ -641,6 +859,12 @@ export default function App() {
           {mode === "2d" && <small>Click map to relocate</small>}
         </div>
       )}
+
+      <aside className="orbit-legend" aria-label="Satellite marker legend">
+        {(["leo", "meo", "geo"] as Regime[]).map((regime) => (
+          <span key={regime}><i style={{ background: REGIME_COLORS[regime] }} />{regime.toUpperCase()}</span>
+        ))}
+      </aside>
 
       <div className="count-pill" aria-live="polite">
         {visibleSats.length === sats.length ? (
