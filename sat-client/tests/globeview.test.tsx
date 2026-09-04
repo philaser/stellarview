@@ -288,6 +288,7 @@ vi.mock("three", () => {
     dispose() {}
   }
   class Light {
+    position = new Vector3();
     color: Color;
     constructor() {
       this.color = new Color();
@@ -502,6 +503,21 @@ describe("GlobeView", () => {
     vi.stubGlobal("cancelAnimationFrame", vi.fn());
   });
 
+  it("moves daylight with simulation time instead of keeping a fixed terminator", () => {
+    const { rerender } = render(<GlobeView positions={positions} satNames={satNames}
+      selectedOrbit={null} selectedCatnr={null} onSelect={() => {}} showNight
+      time={new Date("2026-03-20T12:00:00Z")} />);
+    const noon = (config.lights as any[])[1].position;
+    expect(Math.abs(noon.x)).toBeLessThan(5);
+    expect(Math.abs(noon.y)).toBeLessThan(1);
+    rerender(<GlobeView positions={positions} satNames={satNames}
+      selectedOrbit={null} selectedCatnr={null} onSelect={() => {}} showNight
+      time={new Date("2026-03-20T18:00:00Z")} />);
+    const evening = (config.lights as any[])[1].position;
+    expect(evening.x).toBeLessThan(-85);
+    expect(evening.x).toBeGreaterThan(-95);
+  });
+
   it("uses day/night lighting when showNight is on and uniform ambient-only when off", () => {
     const { rerender } = render(
       <GlobeView
@@ -555,7 +571,7 @@ describe("GlobeView", () => {
     const base = createdPoints.find((p) => p.geometry.attributes.position.count === 2);
     expect(base).toBeDefined();
     expect(base.material.size).toBeCloseTo(1.7); // 0.017 globe radii x 100-unit globe radius
-    expect(base.material.opacity).toBe(0.64);
+    expect(base.material.opacity).toBeLessThan(0.5);
     const pos = base.geometry.attributes.position.array as number[];
     expect(pos[2]).toBeCloseTo(420 / 6371, 3);
     expect(pos[5]).toBeCloseTo(0.35, 5);

@@ -1,8 +1,9 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { act, render } from "@testing-library/react";
+import { act, render, screen } from "@testing-library/react";
 import MapView, { type MapViewProps } from "../src/MapView";
 
 let capturedClick: ((e: unknown) => void) | null = null;
+let errorHandler: (() => void) | null = null;
 let loadHandler: (() => void) | null = null;
 let moveHandler: (() => void) | null = null;
 let mockMousemoveHandler: ((e: unknown) => void) | null = null;
@@ -26,6 +27,7 @@ vi.mock("maplibre-gl", () => ({
   default: class {
     on(evt: string, cb: (e: unknown) => void) {
       if (evt === "click") capturedClick = cb;
+      if (evt === "error") errorHandler = cb as () => void;
       if (evt === "load") loadHandler = cb as () => void;
       if (evt === "move") moveHandler = cb as () => void;
       if (evt === "mousemove") mockMousemoveHandler = cb;
@@ -58,6 +60,7 @@ vi.mock("maplibre-gl", () => ({
   Map: class {
     on(evt: string, cb: (e: unknown) => void) {
       if (evt === "click") capturedClick = cb;
+      if (evt === "error") errorHandler = cb as () => void;
       if (evt === "load") loadHandler = cb as () => void;
       if (evt === "move") moveHandler = cb as () => void;
       if (evt === "mousemove") mockMousemoveHandler = cb;
@@ -126,6 +129,16 @@ describe("MapView", () => {
     night: null,
   };
 
+  it("explains initial loading and a failed map load", () => {
+    render(<MapView {...props} />);
+    expect(screen.getByRole("status")).toHaveTextContent("Loading map");
+    act(() => { errorHandler!(); });
+    expect(screen.getByRole("alert")).toHaveTextContent("Map tiles could not load");
+    act(() => { loadHandler!(); });
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    expect(screen.queryByRole("status")).not.toBeInTheDocument();
+  });
+
   it("adds the satellites and orbits sources", () => {
     render(<MapView {...props} />);
     act(() => {
@@ -183,8 +196,8 @@ describe("MapView", () => {
       5,
       2,
     ]);
-    expect(paint["circle-stroke-color"]).toEqual(["case", ["get", "selected"], "#ffffff", "rgba(15, 23, 42, 0.6)"]);
-    expect(paint["circle-stroke-width"]).toEqual(["case", ["get", "selected"], 1.5, 0.5]);
+    expect(paint["circle-stroke-color"]).toEqual(["case", ["get", "selected"], "#ffffff", "#153445"]);
+    expect(paint["circle-stroke-width"]).toEqual(["case", ["get", "selected"], 2, 1]);
   });
 
   it("follows the selected satellite with easeTo when followCatnr is set", () => {

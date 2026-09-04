@@ -5,6 +5,7 @@ import { Line2 } from "three/examples/jsm/lines/Line2.js";
 import { LineGeometry } from "three/examples/jsm/lines/LineGeometry.js";
 import { LineMaterial } from "three/examples/jsm/lines/LineMaterial.js";
 import type { SatDot } from "./MapView";
+import { subsolarPoint } from "./sat/sun";
 
 const COUNTRIES_URL = "/globe/countries.geojson";
 const EARTH_TEXTURE_URL = "/globe/earth-dark.jpg";
@@ -19,7 +20,7 @@ const altR = (altKm: number) => Math.min(altKm / 6371, ALT_CAP);
 // of ~100 three.js units, so every size below is multiplied by the actual radius before being
 // applied to materials/sprites (see `globeRadius` in the component).
 const BASE_SIZE = 0.017;
-const BASE_OPACITY = 0.64;
+const BASE_OPACITY = 0.46;
 const MIN_DOT_SIZE = 0.01;
 const MAX_DOT_SIZE = 0.09;
 const SIZE_CURVE = 0.35;
@@ -125,6 +126,8 @@ export interface GlobeViewProps {
   showNight?: boolean;
   locked?: boolean;
   onSelect: (catnr: number) => void;
+  time?: Date;
+  onStopFollow?: () => void;
 }
 
 export interface ScreenPoint {
@@ -183,6 +186,8 @@ export default function GlobeView({
   showNight,
   locked,
   onSelect,
+  time,
+  onStopFollow,
 }: GlobeViewProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const globeRef = useRef<InstanceType<typeof Globe> | null>(null);
@@ -195,6 +200,9 @@ export default function GlobeView({
   const orbitPhaseRef = useRef(0);
   const onSelectRef = useRef(onSelect);
   onSelectRef.current = onSelect;
+  const stopFollowRef = useRef(onStopFollow);
+  stopFollowRef.current = onStopFollow;
+  const dragNotifiedRef = useRef(false);
   const lockedRef = useRef(locked);
   lockedRef.current = locked;
   // Pointer position at pointerdown, to tell real clicks apart from rotation drags.
@@ -380,6 +388,14 @@ export default function GlobeView({
       return idx >= 0 ? { idx, px, py } : null;
     };
     const onPointerMove = (evt: PointerEvent) => {
+      const down = pointerDownRef.current;
+      if (evt.buttons && down && Math.hypot(evt.clientX - down.x, evt.clientY - down.y) > DRAG_TOLERANCE) {
+        if (!dragNotifiedRef.current && !lockedRef.current) stopFollowRef.current?.();
+        dragNotifiedRef.current = true;
+        setHoveredCatnr(null);
+        setTooltip(null);
+        return;
+      }
       if (lockedRef.current) {
         // a locked globe only tracks its selection; hovering must not show highlights or tooltips
         setHoveredCatnr(null);
@@ -412,6 +428,7 @@ export default function GlobeView({
     };
     const onPointerDown = (evt: PointerEvent) => {
       pointerDownRef.current = { x: evt.clientX, y: evt.clientY };
+      dragNotifiedRef.current = false;
     };
     const onClick = (evt: PointerEvent) => {
       if (lockedRef.current) return;
@@ -432,9 +449,9 @@ export default function GlobeView({
       .then((geo: { features: object[] }) => {
         globe
           .polygonsData(geo.features)
-          .polygonCapColor(() => "rgba(30, 44, 65, 0.62)")
+          .polygonCapColor(() => "rgba(36, 58, 78, 0.24)")
           .polygonSideColor(() => "rgba(56, 89, 138, 0.22)")
-          .polygonStrokeColor(() => "rgba(114, 157, 214, 0.34)")
+          .polygonStrokeColor(() => "rgba(139, 172, 201, 0.46)")
           .polygonAltitude(0.002);
       })
       .catch(() => {
@@ -442,6 +459,14 @@ export default function GlobeView({
       });
 
     globeRef.current = globe;
+    const resize = () => {
+      if (container.clientWidth > 0 && container.clientHeight > 0) {
+        globe.width(container.clientWidth).height(container.clientHeight);
+      }
+    };
+    const resizeObserver = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(resize);
+    resizeObserver?.observe(container);
+    resize();
 
     // Per-frame interpolation: dots glide from the previous snapshot to the current one over the 2s
     // poll window instead of stepping (LEO moves only a few pixels per 2s, so a linear short-arc glide
@@ -524,6 +549,7 @@ export default function GlobeView({
 
     return () => {
       cancelAnimationFrame(rafId);
+      resizeObserver?.disconnect();
       container.removeEventListener("pointerdown", onPointerDown);
       container.removeEventListener("pointermove", onPointerMove);
       container.removeEventListener("click", onClick);
@@ -550,13 +576,18 @@ export default function GlobeView({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Day/night toggle: night-on keeps the day/night terminator shading (ambient + directional lights),
-  // night-off switches to ambient-only so the whole globe reads uniformly lit.
+  // Share the simulation's solar position with the 2D terminator and visibility calculations.
   useEffect(() => {
     const globe = globeRef.current;
     if (!globe) return;
-    globe.lights(globeLights(showNight ?? true));
-  }, [showNight]);
+    const lights = globeLights(showNight ?? true);
+    if (lights.length > 1) {
+      const sun = subsolarPoint(time ?? new Date());
+      const direction = globe.getCoords(sun.latDeg, sun.lonDeg, 5);
+      lights[1].position.set(direction.x, direction.y, direction.z);
+    }
+    globe.lights(lights);
+  }, [showNight, time]);
 
   // Focus is a one-shot camera move. Follow repeats the move on each position snapshot, keeping
   // the selected satellite centered while still allowing the user to temporarily inspect nearby space.
@@ -575,7 +606,7 @@ export default function GlobeView({
     if (!globe || followCatnr == null) return;
     const satellite = positions.find((position) => position.catnr === followCatnr);
     if (satellite) globe.pointOfView(
-      { lat: satellite.lat, lng: satellite.lon, altitude: 1.9 },
+      { lat: satellite.lat, lng: satellite.lon, altitude: globe.pointOfView().altitude ?? 1.9 },
       reducedMotionRef.current ? 0 : 650
     );
   }, [followCatnr, positions]);

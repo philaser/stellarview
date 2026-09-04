@@ -20,6 +20,7 @@ export interface MapViewProps {
   followCatnr: number | null;
   focus?: { catnr: number; ts: number } | null;
   night: [number, number][] | null;
+  onStopFollow?: () => void;
 }
 
 export default function MapView({
@@ -31,10 +32,16 @@ export default function MapView({
   followCatnr,
   focus,
   night,
+  onStopFollow,
 }: MapViewProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<MapLibreMap | null>(null);
   const [styleLoaded, setStyleLoaded] = useState(false);
+  const [mapError, setMapError] = useState(false);
+  const [attempt, setAttempt] = useState(0);
+  const stopFollowRef = useRef(onStopFollow);
+  stopFollowRef.current = onStopFollow;
+  const reducedMotion = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false;
   const [mapBounds, setMapBounds] = useState<{ west: number; south: number; east: number; north: number } | null>(null);
   const onSelectRef = useRef(onSelect);
   const onSetObserverRef = useRef(onSetObserver);
@@ -51,9 +58,22 @@ export default function MapView({
     });
     // dev/verification handle for the visual-check harness
     (window as { __ftMap?: MapLibreMap }).__ftMap = map;
+    let loaded = false;
+    const loadingTimeout = setTimeout(() => {
+      if (!loaded) setMapError(true);
+    }, 15_000);
     map.on("load", () => {
-      if (mapRef.current === map) setStyleLoaded(true);
+      loaded = true;
+      clearTimeout(loadingTimeout);
+      if (mapRef.current === map) {
+        setStyleLoaded(true);
+        setMapError(false);
+      }
     });
+    map.on("error", () => {
+      if (!loaded) setMapError(true);
+    });
+    map.on("dragstart", () => stopFollowRef.current?.());
     map.on("click", (e) => {
       const features = map.queryRenderedFeatures(e.point, {
         layers: ["satellites-layer"],
@@ -95,8 +115,14 @@ export default function MapView({
       setMapBounds({ west: b.getWest(), south: b.getSouth(), east: b.getEast(), north: b.getNorth() });
     });
     mapRef.current = map;
-    return () => map.remove();
-  }, []);
+    const observer = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(() => map.resize());
+    observer?.observe(containerRef.current!);
+    return () => {
+      clearTimeout(loadingTimeout);
+      observer?.disconnect();
+      map.remove();
+    };
+  }, [attempt]);
 
   useEffect(() => {
     const map = mapRef.current;
@@ -136,8 +162,8 @@ export default function MapView({
             2,
           ],
           "circle-color": ["get", "color"],
-          "circle-stroke-color": ["case", ["get", "selected"], "#ffffff", "rgba(15, 23, 42, 0.6)"],
-          "circle-stroke-width": ["case", ["get", "selected"], 1.5, 0.5],
+          "circle-stroke-color": ["case", ["get", "selected"], "#ffffff", "#153445"],
+          "circle-stroke-width": ["case", ["get", "selected"], 2, 1],
         },
       });
     } else {
@@ -190,7 +216,7 @@ export default function MapView({
 
     const orbitFeatures: GeoJSON.Feature[] = Object.entries(orbits).map(([catnr, coords]) => ({
       type: "Feature",
-      properties: { color: "#a855f7" },
+      properties: { color: "#783ec0" },
       geometry: { type: "LineString", coordinates: coords },
     }));
     const orbitData: GeoJSON.FeatureCollection = { type: "FeatureCollection", features: orbitFeatures };
@@ -203,8 +229,8 @@ export default function MapView({
         source: "orbits",
         layout: { "line-cap": "round", "line-join": "round" },
         paint: {
-          "line-color": "#a855f7",
-          "line-width": 1.5,
+          "line-color": "#783ec0",
+          "line-width": 2.5,
           "line-opacity": 0.9,
           "line-dasharray": [3, 2],
         },
@@ -216,7 +242,7 @@ export default function MapView({
 
   useEffect(() => {
     const map = mapRef.current;
-    if (!map || !styleLoaded || Object.keys(orbits).length === 0) return;
+    if (!map || !styleLoaded || Object.keys(orbits).length === 0 || reducedMotion) return;
     let phase = 0;
     let rafId = 0;
     const tick = () => {
@@ -230,7 +256,7 @@ export default function MapView({
     };
     rafId = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(rafId);
-  }, [orbits, styleLoaded]);
+  }, [orbits, styleLoaded, reducedMotion]);
 
   useEffect(() => {
     const map = mapRef.current;
@@ -259,7 +285,7 @@ export default function MapView({
     if (!map || !styleLoaded || followCatnr === null) return;
     const target = positions.find((p) => p.catnr === followCatnr);
     if (!target) return;
-    map.easeTo({ center: [target.lon, target.lat], duration: 500, essential: true });
+    map.easeTo({ center: [target.lon, target.lat], duration: reducedMotion ? 0 : 500 });
   }, [positions, followCatnr, styleLoaded]);
 
   const handledFocusTsRef = useRef(0);
@@ -270,8 +296,22 @@ export default function MapView({
     const target = positions.find((p) => p.catnr === focus.catnr);
     if (!target) return;
     handledFocusTsRef.current = focus.ts;
-    map.flyTo({ center: [target.lon, target.lat], zoom: 6, essential: true });
+    map.flyTo({ center: [target.lon, target.lat], zoom: 6, duration: reducedMotion ? 0 : 700 });
   }, [focus, positions, styleLoaded]);
 
-  return <div ref={containerRef} className="map" />;
+  return <>
+    <div ref={containerRef} className="map" />
+    {!styleLoaded && <div className="map-loading" role={mapError ? "alert" : "status"}>
+      <div>
+        <p>{mapError ? "Map tiles could not load. You can retry or switch to the globe." : "Loading map…"}</p>
+        {mapError && <button type="button" onClick={() => {
+          setMapError(false);
+          setStyleLoaded(false);
+          setMapBounds(null);
+          handledFocusTsRef.current = 0;
+          setAttempt((value) => value + 1);
+        }}>Retry map</button>}
+      </div>
+    </div>}
+  </>;
 }
