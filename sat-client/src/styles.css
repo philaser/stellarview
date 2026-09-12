@@ -1143,7 +1143,7 @@ input:focus-visible {
   overflow-y: auto;
 }
 
-.selection-open .visualization-stage { right: 368px; }
+.selection-open .visualization-stage { right: 0; }
 .sat-panel { scrollbar-width: thin; scrollbar-color: rgba(148, 163, 184, 0.35) transparent; }
 .panel h2 { font-size: 17px; }
 .panel-kicker,
@@ -1319,7 +1319,7 @@ input:focus-visible {
   .catalog-state small,
   .time-hud small { display: none; }
   .panel { top: 66px; right: 10px; }
-  .selection-open .visualization-stage { right: 364px; }
+  .selection-open .visualization-stage { right: 0; }
 }
 
 @media (max-width: 719px) {
@@ -1338,7 +1338,7 @@ input:focus-visible {
   .time-hud { grid-row: 2; justify-content: flex-end; }
   .time-hud strong { font-size: 11px; }
   .time-mode { font-size: 10px; }
-  .selection-open .visualization-stage { right: 0; bottom: min(42vh, 340px); }
+  .selection-open .visualization-stage { right: 0; bottom: 0; }
   .dock { z-index: 44; }
   .dock:focus-within .dock-item { display: none; }
   .dock:focus-within .dock-search-wrap,
@@ -1453,6 +1453,6 @@ input:focus-visible {
 }
 @media (max-width: 719px) {
   .map-mode .sat-panel { left: 8px; right: 8px; width: auto; }
-  .map-mode.selection-open .orbit-legend { display: none; }
+  .selection-open .orbit-legend { display: none; }
   .map-mode .maplibregl-ctrl-bottom-right { top: 120px; bottom: auto; right: 10px; }
 }

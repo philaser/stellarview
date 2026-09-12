@@ -237,6 +237,8 @@ export default function GlobeView({
   const hasSnapshotRef = useRef(false);
   const labelIdxRef = useRef(-1);
   const highlightIdxRef = useRef(-1);
+  const hoverIdxRef = useRef(-1);
+  const hoverDotRef = useRef<THREE.Sprite | null>(null);
   const selectedIdxRef = useRef(-1);
   const reducedMotionRef = useRef(window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false);
   // Single mutable label entry: position ticks mutate it in place so three-globe re-reads the
@@ -369,7 +371,14 @@ export default function GlobeView({
     glowSprite.visible = false;
     glowSpriteRef.current = glowSprite;
 
-    globe.scene().add(basePoints, highlightDot, glowSprite, orbitLine);
+    const hoverDot = new THREE.Sprite(spriteMaterial(radialTexture([
+      [0, "rgba(255, 198, 92, 1)"],
+      [0.5, "rgba(255, 198, 92, 0.85)"],
+      [1, "rgba(255, 198, 92, 0)"],
+    ])));
+    hoverDot.visible = false;
+    hoverDotRef.current = hoverDot;
+    globe.scene().add(basePoints, highlightDot, glowSprite, orbitLine, hoverDot);
 
     // Recompute dot sizes when the OrbitControls camera moves: base size grows gently as the
     // camera zooms in so dots stay readable, clamped to a sane floor/ceiling. The selection
@@ -560,6 +569,14 @@ export default function GlobeView({
           }
         }
 
+        const hoverIndex = hoverIdxRef.current;
+        const hoverDot = hoverDotRef.current;
+        if (hoverIndex >= 0 && hoverDot?.visible) {
+          hoverDot.position.set(lerpOutRef.current[hoverIndex * 3], lerpOutRef.current[hoverIndex * 3 + 1], lerpOutRef.current[hoverIndex * 3 + 2]);
+          const size = Math.max(dotSizeRef.current * 1.15, pxScale(4));
+          hoverDot.scale.set(size, size, 1);
+        }
+
         const selectedLabel = selectedLabelRef.current;
         const selectedIndex = selectedIdxRef.current;
         if (selectedLabel && selectedIndex >= 0) {
@@ -606,7 +623,11 @@ export default function GlobeView({
       container.removeEventListener("pointermove", onPointerMove);
       container.removeEventListener("click", onClick);
       controls.removeEventListener("change", applySize);
-      globe.scene().remove(basePoints, highlightDot, glowSprite, orbitLine);
+      globe.scene().remove(basePoints, highlightDot, glowSprite, orbitLine, hoverDot);
+      hoverDot.geometry.dispose();
+      hoverDot.material.dispose();
+      (hoverDot.material as THREE.SpriteMaterial).map?.dispose();
+      hoverDotRef.current = null;
       basePoints.geometry.dispose();
       (basePoints.material as THREE.Material).dispose();
       orbitLine.geometry.dispose();
@@ -771,13 +792,16 @@ export default function GlobeView({
     }
   }, [positions]);
 
-  // Highlight sprites show hovered or selected (hover wins); the rAF loop keeps their positions
-  // lerped between snapshots using the index stored here. The glow halo mirrors the dot's visibility.
+  // Selection and hover use independent sprites, both following the interpolated positions.
   useEffect(() => {
     const dot = highlightDotRef.current;
     const glow = glowSpriteRef.current;
     if (!dot) return;
-    const shown = hoveredCatnr ?? selectedCatnr;
+    const hoverIndex = hoveredCatnr != null && hoveredCatnr !== selectedCatnr
+      ? positions.findIndex((p) => p.catnr === hoveredCatnr) : -1;
+    hoverIdxRef.current = hoverIndex;
+    if (hoverDotRef.current) hoverDotRef.current.visible = hoverIndex >= 0;
+    const shown = selectedCatnr;
     const idx = shown != null ? positions.findIndex((p) => p.catnr === shown) : -1;
     selectedIdxRef.current = selectedCatnr != null
       ? positions.findIndex((position) => position.catnr === selectedCatnr)

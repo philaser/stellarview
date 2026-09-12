@@ -589,7 +589,7 @@ describe("GlobeView", () => {
     expect(pos[5]).toBeCloseTo(0.35, 5);
     expect(base.geometry.attributes.color).toBeDefined();
     expect(sceneAdd).toHaveBeenCalledTimes(2); // daylight overlay and satellite layers
-    expect(sceneAdd.mock.calls[1]).toHaveLength(4);
+    expect(sceneAdd.mock.calls[1]).toHaveLength(5);
     expect(config.particlesData).toBeUndefined(); // no per-satellite particle layers anymore
   });
 
@@ -701,14 +701,14 @@ describe("GlobeView", () => {
 
   it("highlights the hovered satellite with a round dot sprite and shows a name tooltip", () => {
     const { container, mapEl } = renderGlobe();
-    const dot = threeLineMocks.createdSprites[0];
+    const dot = threeLineMocks.createdSprites[2];
     const glow = threeLineMocks.createdSprites[1];
     expect(dot.visible).toBe(false);
     expect(glow.visible).toBe(false);
     // Sat 0 projects to (480, 270) in the 800x600 test rect.
     fireEvent.pointerMove(mapEl, { clientX: 480, clientY: 270 });
     expect(dot.visible).toBe(true);
-    expect(glow.visible).toBe(true);
+    expect(glow.visible).toBe(false);
     expect((mapEl as HTMLElement).style.cursor).toBe("pointer");
     const tooltip = container.querySelector(".globe-tooltip")!;
     expect(tooltip.classList.contains("visible")).toBe(true);
@@ -812,6 +812,19 @@ describe("GlobeView", () => {
     const cb2 = rafCallbacks.shift()!;
     cb2(2000);
     expect(Array.from(line.geometry.colors as Float32Array)).toEqual(Array.from(orbitGradientColors(3, 0.04)));
+  });
+
+  it("keeps the selected glow in place while hovering another satellite", () => {
+    const { mapEl } = renderGlobe({ selectedCatnr: 1 });
+    fireEvent.pointerMove(mapEl, { clientX: 640, clientY: 390 });
+    rafCallbacks.shift()!(2500);
+    const [dot, glow, hover] = threeLineMocks.createdSprites;
+    expect(dot.position.x).toBeCloseTo(20);
+    expect(glow.position.x).toBeCloseTo(20);
+    expect(dot.visible).toBe(true);
+    expect(glow.visible).toBe(true);
+    expect(hover.visible).toBe(true);
+    expect(hover.position.x).toBeCloseTo(60);
   });
 
   it("pulses the highlight's opacity, keeping its size stable, and follows the satellite with the glow halo", () => {
