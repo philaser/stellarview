@@ -1467,12 +1467,18 @@ input:focus-visible {
 .observer-placement button { color: inherit; background: transparent; border: 1px solid #41617a; border-radius: 6px; padding: 6px 10px; cursor: pointer; }
 
 .globe-observer-marker {
-  width: 14px; height: 14px; border-radius: 50%;
-  background: #d8bd88; border: 2px solid #fff1d4;
-  box-shadow: 0 0 0 4px #082538cc; pointer-events: none;
+  width: 18px; height: 18px; pointer-events: auto; cursor: help;
+}
+.globe-observer-marker::before {
+  content: ""; position: absolute; left: 6px; top: 6px;
+  width: 6px; height: 6px; border-radius: 50%;
+  background: #d8bd88; box-shadow: 0 0 0 1px #081723;
 }
 .globe-observer-marker span {
+  visibility: hidden; pointer-events: none;
   position: absolute; top: 21px; left: 50%; transform: translateX(-50%);
   padding: 3px 7px; border-radius: 4px; background: #081723e6;
   color: #f2dbaf; font: 600 10px/1.4 sans-serif; letter-spacing: 0.08em;
 }
+.globe-observer-marker:hover span,
+.globe-observer-marker:focus-visible span { visibility: visible; }

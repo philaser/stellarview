@@ -852,6 +852,7 @@ export default function GlobeView({
       .htmlElement(() => {
         const marker = document.createElement("div");
         marker.className = "globe-observer-marker";
+        marker.tabIndex = 0;
         marker.setAttribute("role", "img");
         marker.setAttribute("aria-label", "Observer location");
         const label = document.createElement("span");

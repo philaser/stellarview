@@ -48,6 +48,9 @@ export default function MapView({
   night,
   onStopFollow,
 }: MapViewProps) {
+  const [observerHover, setObserverHover] = useState<{ x: number; y: number } | null>(null);
+  const observerRef = useRef(observer);
+  observerRef.current = observer;
   const [hover, setHover] = useState<{ catnr: number; x: number; y: number } | null>(null);
   const [label, setLabel] = useState<{ catnr: number; x: number; y: number } | null>(null);
   const motionRef = useRef(new MapMotion());
@@ -145,10 +148,21 @@ export default function MapView({
     clearHoverRef.current = () => {
       clearHover();
       setHover(null);
+      setObserverHover(null);
       map.getCanvas().style.cursor = "";
     };
     map.on("mousemove", (e) => {
       if (lockedRef.current || !loaded) return;
+      const point = observerRef.current;
+      const projected = point ? map.project([point.lon, point.lat]) : null;
+      if (projected && Math.hypot(projected.x - e.point.x, projected.y - e.point.y) <= 9) {
+        setObserverHover({ x: e.point.x, y: e.point.y });
+        setHover(null);
+        clearHover();
+        map.getCanvas().style.cursor = "help";
+        return;
+      }
+      setObserverHover(null);
       const feature = pick(e.point, 8);
       const hit = feature ? Number(feature.properties.catnr) : null;
       setHover(hit === null ? null : { catnr: hit, x: e.point.x, y: e.point.y });
@@ -163,6 +177,7 @@ export default function MapView({
       }
     });
     map.on("mouseleave", () => {
+      setObserverHover(null);
       setHover(null);
       clearHover();
       map.getCanvas().style.cursor = "";
@@ -349,7 +364,7 @@ export default function MapView({
         id: "observer-layer",
         type: "circle",
         source: "observer",
-        paint: { "circle-radius": 7, "circle-color": "#d8bd88", "circle-stroke-color": "#fff1d4", "circle-stroke-width": 2 },
+        paint: { "circle-radius": 3, "circle-color": "#d8bd88", "circle-stroke-color": "#081723", "circle-stroke-width": 1 },
       });
     } else {
       (map.getSource("observer") as maplibregl.GeoJSONSource).setData(feature);
@@ -385,6 +400,7 @@ export default function MapView({
       <button type="button" aria-label="Show world" title="Show world" disabled={locked} onClick={() => { stopFollowRef.current?.(); mapRef.current?.easeTo({ center: [0, 20], zoom: 1.5, duration: reducedMotion ? 0 : 700 }); }}><IconWorld size={18} /></button>
     </nav>}
     {label && <div className="atlas-selected-label" style={{ left: label.x, top: Math.max(24, Math.min(label.y, (containerRef.current?.clientHeight ?? 48) - 24)), transform: label.x > (containerRef.current?.clientWidth ?? 0) - 240 ? "translate(calc(-100% - 16px), -50%)" : undefined }}>{satNames[label.catnr] ?? `NORAD ${label.catnr}`}</div>}
+    {observerHover && observer && <div className="atlas-tooltip" style={{ left: observerHover.x + 14, top: Math.max(8, observerHover.y - 42) }}>Observer</div>}
     {hover && <div className="atlas-tooltip" style={{ left: Math.max(8, Math.min(hover.x + 14, (containerRef.current?.clientWidth ?? 300) - 230)), top: Math.max(8, hover.y - 42) }}>
       {satNames[hover.catnr] ?? "Satellite"} · NORAD {hover.catnr}
     </div>}
