@@ -247,7 +247,11 @@ export default function GlobeView({
 
   useEffect(() => {
     const container = containerRef.current!;
-    const globe = new Globe(container, { rendererConfig: { antialias: true } });
+    const globe = new Globe(container, {
+      animateIn: false,
+      waitForGlobeReady: false,
+      rendererConfig: { antialias: true },
+    });
     // dev/verification handle for the visual-check harness
     (window as { __ftGlobe?: unknown }).__ftGlobe = globe;
     // this globe.gl build renders the sphere at ~100 three.js units radius; dot sizes are expressed
