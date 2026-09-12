@@ -53,6 +53,20 @@ interface CatalogStatus {
 
 type ObserverSource = "device" | "map" | "manual" | "reference";
 
+const OBSERVER_STORAGE_KEY = "stellarview.observer.v1";
+
+function readSavedObserver(): { point: ObserverPoint; source: ObserverSource } | null {
+  try {
+    const saved = JSON.parse(localStorage.getItem(OBSERVER_STORAGE_KEY) ?? "null");
+    if (!saved || !Number.isFinite(saved.point?.lat) || !Number.isFinite(saved.point?.lon)
+      || Math.abs(saved.point.lat) > 90 || Math.abs(saved.point.lon) > 180
+      || !["device", "map", "manual", "reference"].includes(saved.source)) return null;
+    return { point: { lat: saved.point.lat, lon: saved.point.lon, heightM: 0 }, source: saved.source };
+  } catch {
+    return null;
+  }
+}
+
 const normalizeObserver = (lat: number, lon: number): ObserverPoint => ({
   lat,
   lon: ((lon + 180) % 360 + 360) % 360 - 180,
@@ -113,9 +127,18 @@ export default function App() {
   const [positions, setPositions] = useState<SatDot[]>([]);
   const [orbits, setOrbits] = useState<Record<number, [number, number][]>>({});
   const [selectedCatnr, setSelectedCatnr] = useState<number | null>(null);
-  const [observer, setObserver] = useState<ObserverPoint | null>(null);
-  const [observerSource, setObserverSource] = useState<ObserverSource | null>(null);
-  const [observerStatus, setObserverStatus] = useState<"idle" | "locating" | "ready" | "unavailable">("idle");
+  const [savedObserver] = useState(readSavedObserver);
+  const [observer, setObserver] = useState<ObserverPoint | null>(savedObserver?.point ?? null);
+  const [observerSource, setObserverSource] = useState<ObserverSource | null>(savedObserver?.source ?? null);
+  const [observerStatus, setObserverStatus] = useState<"idle" | "locating" | "ready" | "unavailable">(savedObserver ? "ready" : "idle");
+  useEffect(() => {
+    if (!observer || !observerSource) return;
+    try {
+      localStorage.setItem(OBSERVER_STORAGE_KEY, JSON.stringify({ point: observer, source: observerSource }));
+    } catch {
+      // Storage can be blocked; the observer still works for this session.
+    }
+  }, [observer, observerSource]);
   const [observerError, setObserverError] = useState<string | null>(null);
   const [placingObserver, setPlacingObserver] = useState(false);
   const observerRequestRef = useRef(0);

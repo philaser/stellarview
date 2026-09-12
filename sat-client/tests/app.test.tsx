@@ -284,6 +284,7 @@ vi.mock("three", async () => {
   };
 });
 beforeEach(() => {
+  localStorage.clear();
   capturedClick = null;
   loadHandler = null;
   clickHitsFeature = true;
@@ -323,6 +324,40 @@ const openObserverSetup = () => {
 };
 
 describe("App", () => {
+  it("restores the saved observer after remount without requesting device location", async () => {
+    const first = render(<App />);
+    await act(async () => {});
+    openObserverSetup();
+    fireEvent.click(screen.getByRole("button", { name: /use New York reference/i }));
+    first.unmount();
+    render(<App />);
+    await act(async () => {});
+    expect(screen.getByText(/Observer 40\.71°, -74\.01°/)).toBeInTheDocument();
+    expect(geoMock).not.toHaveBeenCalled();
+  });
+
+  it.each(["broken", '{"point":{"lat":999,"lon":0},"source":"map"}'])("ignores invalid saved observer %s", async (value) => {
+    localStorage.setItem("stellarview.observer.v1", value);
+    render(<App />);
+    await act(async () => {});
+    expect(document.querySelector(".observer-label")).toBeNull();
+  });
+
+  it("keeps observer selection working when browser storage is blocked", async () => {
+    const read = vi.spyOn(Storage.prototype, "getItem").mockImplementation(() => { throw new Error("blocked"); });
+    const write = vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => { throw new Error("blocked"); });
+    try {
+      render(<App />);
+      await act(async () => {});
+      openObserverSetup();
+      fireEvent.click(screen.getByRole("button", { name: /use New York reference/i }));
+      expect(screen.getByText(/Observer 40\.71°, -74\.01°/)).toBeInTheDocument();
+    } finally {
+      read.mockRestore();
+      write.mockRestore();
+    }
+  });
+
   it("offers New York and ignores a pending device result after reference selection", async () => {
     geoMock.mockImplementation(() => {});
     render(<App />);

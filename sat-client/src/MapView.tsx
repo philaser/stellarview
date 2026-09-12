@@ -349,7 +349,7 @@ export default function MapView({
         id: "observer-layer",
         type: "circle",
         source: "observer",
-        paint: { "circle-radius": 7, "circle-color": "#38d9ed", "circle-stroke-color": "#f8fafc", "circle-stroke-width": 2 },
+        paint: { "circle-radius": 7, "circle-color": "#d8bd88", "circle-stroke-color": "#fff1d4", "circle-stroke-width": 2 },
       });
     } else {
       (map.getSource("observer") as maplibregl.GeoJSONSource).setData(feature);

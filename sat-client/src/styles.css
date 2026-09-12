@@ -1468,11 +1468,11 @@ input:focus-visible {
 
 .globe-observer-marker {
   width: 14px; height: 14px; border-radius: 50%;
-  background: #38d9ed; border: 2px solid #f8fafc;
+  background: #d8bd88; border: 2px solid #fff1d4;
   box-shadow: 0 0 0 4px #082538cc; pointer-events: none;
 }
 .globe-observer-marker span {
   position: absolute; top: 21px; left: 50%; transform: translateX(-50%);
   padding: 3px 7px; border-radius: 4px; background: #081723e6;
-  color: #b5f5fc; font: 600 10px/1.4 sans-serif; letter-spacing: 0.08em;
+  color: #f2dbaf; font: 600 10px/1.4 sans-serif; letter-spacing: 0.08em;
 }
