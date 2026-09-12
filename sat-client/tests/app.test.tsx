@@ -347,17 +347,17 @@ describe("App", () => {
     expect(screen.getByRole("button", { name: /use my location/i })).toBeEnabled();
   });
 
-  it("opens map placement from the globe and allows cancellation", async () => {
+  it("keeps observer placement on the globe and allows cancellation", async () => {
     render(<App />);
     await act(async () => {});
     openObserverSetup();
     fireEvent.click(screen.getByRole("button", { name: /choose on map/i }));
     await act(async () => { await import("../src/MapView"); });
-    expect(screen.getByRole("button", { name: /show 2d map/i })).toHaveAttribute("aria-pressed", "true");
-    expect(screen.getByText(/Click anywhere on the map/)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /show 3d globe/i })).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByText(/Click the globe surface/)).toBeInTheDocument();
     expect(screen.queryByRole("region", { name: /ISS.*details/i })).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: /cancel placement/i }));
-    expect(screen.queryByText(/Click anywhere on the map/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Click the globe surface/)).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: /set observer location/i })).toBeInTheDocument();
   });
 

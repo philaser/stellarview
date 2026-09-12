@@ -137,6 +137,8 @@ export interface GlobeViewProps {
   showDaylight?: boolean;
   locked?: boolean;
   onSelect: (catnr: number) => void;
+  placingObserver?: boolean;
+  onSetObserver?: (lat: number, lon: number) => void;
   time?: Date;
   onStopFollow?: () => void;
 }
@@ -197,6 +199,8 @@ export default function GlobeView({
   showDaylight,
   locked,
   onSelect,
+  placingObserver = false,
+  onSetObserver,
   time,
   onStopFollow,
 }: GlobeViewProps) {
@@ -210,6 +214,10 @@ export default function GlobeView({
   const glowSpriteRef = useRef<THREE.Sprite | null>(null);
   const orbitPointCountRef = useRef(0);
   const orbitPhaseRef = useRef(0);
+  const placingObserverRef = useRef(placingObserver);
+  placingObserverRef.current = placingObserver;
+  const onSetObserverRef = useRef(onSetObserver);
+  onSetObserverRef.current = onSetObserver;
   const onSelectRef = useRef(onSelect);
   onSelectRef.current = onSelect;
   const stopFollowRef = useRef(onStopFollow);
@@ -457,6 +465,12 @@ export default function GlobeView({
         container.style.cursor = "";
         return;
       }
+      if (placingObserverRef.current) {
+        setHoveredCatnr(null);
+        setTooltip(null);
+        container.style.cursor = "crosshair";
+        return;
+      }
       const hit = pick(evt, HOVER_THRESHOLD);
       if (!hit) {
         setHoveredCatnr(null);
@@ -489,6 +503,12 @@ export default function GlobeView({
       // a release far from the pointerdown was a globe rotation drag, not a click
       const down = pointerDownRef.current;
       if (down && Math.hypot(evt.clientX - down.x, evt.clientY - down.y) > DRAG_TOLERANCE) return;
+      if (placingObserverRef.current) {
+        const rect = container.getBoundingClientRect();
+        const point = globe.toGlobeCoords(evt.clientX - rect.left, evt.clientY - rect.top);
+        if (point) onSetObserverRef.current?.(point.lat, point.lng);
+        return;
+      }
       const hit = pick(evt, CLICK_THRESHOLD);
       if (!hit) return;
       const sat = positionsRef.current[hit.idx];

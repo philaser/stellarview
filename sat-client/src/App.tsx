@@ -533,6 +533,8 @@ export default function App() {
             time={orbitTime}
             locked={locked}
             onSelect={selectSatellite}
+            placingObserver={placingObserver}
+            onSetObserver={(lat, lon) => setNamedObserver({ lat, lon, heightM: 0 }, "map")}
             onStopFollow={() => setFollowCatnr(null)}
           />
         )}
@@ -540,7 +542,7 @@ export default function App() {
       </div>
 
       {placingObserver && <div className="observer-placement" role="status">
-        <span>Click anywhere on the map to set your observer location.</span>
+        <span>{mode === "3d" ? "Click the globe surface" : "Click anywhere on the map"} to set your observer location.</span>
         <button type="button" onClick={() => setPlacingObserver(false)}>Cancel placement</button>
       </div>}
       <header className="mission-hud" aria-label="Satellite tracking status">
@@ -848,7 +850,7 @@ export default function App() {
                       : "Use your device location, choose on map, use a reference, or enter coordinates."}</small>
                   <div className="observer-actions">
                     <button type="button" disabled={observerStatus === "locating"} onClick={requestObserver}>Use my location</button>
-                    <button type="button" onClick={() => { cancelObserverRequest(); setObserverStatus("idle"); setObserverError(null); setMode("2d"); setLocked(false); setFollowCatnr(null); setPlacingObserver(true); setObserverSetupOpen(false); }}>Choose on map</button>
+                    <button type="button" onClick={() => { cancelObserverRequest(); setObserverStatus("idle"); setObserverError(null); setLocked(false); setFollowCatnr(null); setPlacingObserver(true); setObserverSetupOpen(false); }}>Choose on map</button>
                     <button type="button" onClick={() => setNamedObserver(FALLBACK_OBSERVER, "reference")}>Use New York reference</button>
                   </div>
                   <form className="coordinate-form" onSubmit={submitManualObserver}>

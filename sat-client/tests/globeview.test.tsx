@@ -58,6 +58,9 @@ vi.mock("globe.gl", () => ({
     getCoords(lat: number, lng: number, altitude = 0) {
       return coordsForTest.current(lat, lng, altitude);
     }
+    toGlobeCoords(x: number, y: number) {
+      return x < 100 ? null : { lat: 40.71, lng: -74.01 };
+    }
     getGlobeRadius() {
       return globeRadiusForTest.current;
     }
@@ -657,6 +660,24 @@ describe("GlobeView", () => {
     rerender(<GlobeView positions={[...positions]} satNames={satNames} selectedOrbit={null}
       selectedCatnr={1} focus={focus} onSelect={() => {}} />);
     expect(pointOfViewMock).not.toHaveBeenCalled();
+  });
+
+  it("places an observer on the surface instead of selecting a satellite", () => {
+    const onSelect = vi.fn();
+    const onSetObserver = vi.fn();
+    const { mapEl } = renderGlobe({ placingObserver: true, onSelect, onSetObserver });
+    fireEvent.click(mapEl, { clientX: 640, clientY: 390 });
+    expect(onSetObserver).toHaveBeenCalledWith(40.71, -74.01);
+    expect(onSelect).not.toHaveBeenCalled();
+  });
+
+  it("ignores space and rotation drags during observer placement", () => {
+    const onSetObserver = vi.fn();
+    const { mapEl } = renderGlobe({ placingObserver: true, onSetObserver });
+    fireEvent.click(mapEl, { clientX: 50, clientY: 50 });
+    fireEvent.pointerDown(mapEl, { clientX: 600, clientY: 390 });
+    fireEvent.click(mapEl, { clientX: 640, clientY: 390 });
+    expect(onSetObserver).not.toHaveBeenCalled();
   });
 
   it("does not select on a click far from any projected dot", () => {
