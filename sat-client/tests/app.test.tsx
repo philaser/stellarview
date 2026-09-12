@@ -124,6 +124,14 @@ vi.mock("globe.gl", () => ({
     pathDashLength() { return this; }
     pathDashGap() { return this; }
     pathDashInitialGap() { return this; }
+    htmlLat() { return this; }
+    htmlLng() { return this; }
+    htmlAltitude() { return this; }
+    htmlElement(fn: () => HTMLElement) { this.observerElement = fn; return this; }
+    observerElement?: () => HTMLElement;
+    htmlElementsData(data: unknown[]) {
+      return this;
+    }
     labelsData() { return this; }
     labelLat() { return this; }
     labelLng() { return this; }

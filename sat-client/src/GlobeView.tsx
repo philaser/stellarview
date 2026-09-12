@@ -137,6 +137,7 @@ export interface GlobeViewProps {
   showDaylight?: boolean;
   locked?: boolean;
   onSelect: (catnr: number) => void;
+  observer?: { lat: number; lon: number } | null;
   placingObserver?: boolean;
   onSetObserver?: (lat: number, lon: number) => void;
   time?: Date;
@@ -199,6 +200,7 @@ export default function GlobeView({
   showDaylight,
   locked,
   onSelect,
+  observer = null,
   placingObserver = false,
   onSetObserver,
   time,
@@ -839,6 +841,26 @@ export default function GlobeView({
       if (glow) glow.visible = false;
     }
   }, [positions, selectedCatnr, hoveredCatnr]);
+
+  useEffect(() => {
+    const globe = globeRef.current;
+    if (!globe) return;
+    globe
+      .htmlLat("lat")
+      .htmlLng("lon")
+      .htmlAltitude(0.002)
+      .htmlElement(() => {
+        const marker = document.createElement("div");
+        marker.className = "globe-observer-marker";
+        marker.setAttribute("role", "img");
+        marker.setAttribute("aria-label", "Observer location");
+        const label = document.createElement("span");
+        label.textContent = "OBSERVER";
+        marker.appendChild(label);
+        return marker;
+      })
+      .htmlElementsData(observer ? [observer] : []);
+  }, [observer?.lat, observer?.lon]);
 
   const selectedPositionAvailable = positions.some((position) => position.catnr === selectedCatnr);
 

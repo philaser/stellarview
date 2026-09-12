@@ -523,6 +523,7 @@ export default function App() {
           />
         ) : (
           <GlobeView
+            observer={observer}
             positions={positions}
             satNames={satNames}
             selectedOrbit={selected && orbits[selected.catnr] ? orbits[selected.catnr] : null}

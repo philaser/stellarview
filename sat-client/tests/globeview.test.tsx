@@ -116,6 +116,16 @@ vi.mock("globe.gl", () => ({
     pathDashInitialGap() {
       return this;
     }
+    htmlLat() { return this; }
+    htmlLng() { return this; }
+    htmlAltitude() { return this; }
+    htmlElement(fn: () => HTMLElement) { this.observerElement = fn; return this; }
+    observerElement?: () => HTMLElement;
+    htmlElementsData(data: unknown[]) {
+      config.observerData = data;
+      config.observerElement = data.length ? this.observerElement?.() : null;
+      return this;
+    }
     labelsData(d: unknown) {
       labelsDataMock(d);
       config.labelsData = d;
@@ -660,6 +670,18 @@ describe("GlobeView", () => {
     rerender(<GlobeView positions={[...positions]} satNames={satNames} selectedOrbit={null}
       selectedCatnr={1} focus={focus} onSelect={() => {}} />);
     expect(pointOfViewMock).not.toHaveBeenCalled();
+  });
+
+  it("updates and removes the observer marker independently of satellite selection", () => {
+    const { rerender } = renderGlobe({ observer: { lat: 40.71, lon: -74.01 } });
+    expect(config.observerData).toEqual([{ lat: 40.71, lon: -74.01 }]);
+    expect((config.observerElement as HTMLElement).textContent).toBe("OBSERVER");
+    rerender(<GlobeView positions={positions} satNames={satNames} selectedOrbit={null}
+      selectedCatnr={1} observer={{ lat: 5.56, lon: -0.21 }} onSelect={() => {}} />);
+    expect(config.observerData).toEqual([{ lat: 5.56, lon: -0.21 }]);
+    rerender(<GlobeView positions={positions} satNames={satNames} selectedOrbit={null}
+      selectedCatnr={1} observer={null} onSelect={() => {}} />);
+    expect(config.observerData).toEqual([]);
   });
 
   it("places an observer on the surface instead of selecting a satellite", () => {
