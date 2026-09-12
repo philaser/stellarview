@@ -241,7 +241,7 @@ describe("MapView", () => {
 
   it("reports an empty-map click via onSetObserver", () => {
     const onSetObserver = vi.fn();
-    render(<MapView {...props} onSetObserver={onSetObserver} />);
+    render(<MapView {...props} placingObserver onSetObserver={onSetObserver} />);
     act(() => { loadHandler!(); });
     clickHitsFeature = false;
     capturedClick!({ point: { x: 0, y: 0 }, lngLat: mockLngLat });

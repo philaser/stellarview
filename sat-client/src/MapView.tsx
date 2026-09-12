@@ -26,6 +26,7 @@ export interface MapViewProps {
   orbits: Record<number, [number, number][]>;
   observer: { lat: number; lon: number } | null;
   onSelect: (catnr: number) => void;
+  placingObserver?: boolean;
   onSetObserver: (lat: number, lon: number) => void;
   followCatnr: number | null;
   focus?: { catnr: number; ts: number } | null;
@@ -41,6 +42,7 @@ export default function MapView({
   observer,
   onSelect,
   onSetObserver,
+  placingObserver = false,
   followCatnr,
   focus,
   night,
@@ -67,6 +69,8 @@ export default function MapView({
   const [mapBounds, setMapBounds] = useState<{ west: number; south: number; east: number; north: number } | null>(null);
   const boundsRef = useRef(mapBounds);
   boundsRef.current = mapBounds;
+  const placingObserverRef = useRef(placingObserver);
+  placingObserverRef.current = placingObserver;
   const onSelectRef = useRef(onSelect);
   const onSetObserverRef = useRef(onSetObserver);
   onSelectRef.current = onSelect;
@@ -123,9 +127,13 @@ export default function MapView({
     };
     map.on("click", (e) => {
       if (lockedRef.current || !loaded) return;
+      if (placingObserverRef.current) {
+        onSetObserverRef.current(e.lngLat.lat, e.lngLat.lng);
+        return;
+      }
       const feature = pick(e.point, 12);
       if (feature) onSelectRef.current(Number(feature.properties.catnr));
-      else onSetObserverRef.current(e.lngLat.lat, e.lngLat.lng);
+
     });
     let hoveredId: number | null = null;
     const clearHover = () => {

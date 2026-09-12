@@ -1222,7 +1222,7 @@ input:focus-visible {
   font-weight: 650;
 }
 .observer-options { display: flex; flex-direction: column; gap: 9px; margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--stroke); }
-.observer-actions { display: flex; gap: 7px; }
+.observer-actions { display: flex; flex-wrap: wrap; gap: 7px; }
 .observer-actions button,
 .coordinate-form button,
 .empty-filter button,
@@ -1456,3 +1456,12 @@ input:focus-visible {
   .selection-open .orbit-legend { display: none; }
   .map-mode .maplibregl-ctrl-bottom-right { top: 120px; bottom: auto; right: 10px; }
 }
+
+.observer-placement {
+  position: absolute; z-index: 10; left: 50%; bottom: 100px;
+  transform: translateX(-50%); width: max-content; max-width: calc(100% - 32px);
+  display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 12px;
+  padding: 12px 16px; border: 1px solid #41617a; border-radius: 12px;
+  background: #101f30; color: #e4edf5; font-size: 13px;
+}
+.observer-placement button { color: inherit; background: transparent; border: 1px solid #41617a; border-radius: 6px; padding: 6px 10px; cursor: pointer; }

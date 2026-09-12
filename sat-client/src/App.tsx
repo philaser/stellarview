@@ -37,7 +37,7 @@ import { satelliteVisible } from "./sat/visibility";
 import { nightPolygon } from "./sat/terminator";
 import { useSimulationClock } from "./useSimulationClock";
 
-const FALLBACK_OBSERVER: ObserverPoint = { lat: 48.8566, lon: 2.3522, heightM: 0 };
+const FALLBACK_OBSERVER: ObserverPoint = { lat: 40.7128, lon: -74.0060, heightM: 0 };
 const CATALOG_REFRESH_MS = 15 * 60_000;
 const CATALOG_STALE_MS = 6 * 60 * 60_000;
 const REQUEST_TIMEOUT_MS = 35_000;
@@ -116,6 +116,16 @@ export default function App() {
   const [observer, setObserver] = useState<ObserverPoint | null>(null);
   const [observerSource, setObserverSource] = useState<ObserverSource | null>(null);
   const [observerStatus, setObserverStatus] = useState<"idle" | "locating" | "ready" | "unavailable">("idle");
+  const [observerError, setObserverError] = useState<string | null>(null);
+  const [placingObserver, setPlacingObserver] = useState(false);
+  const observerRequestRef = useRef(0);
+  const observerTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const cancelObserverRequest = useCallback(() => {
+    observerRequestRef.current += 1;
+    if (observerTimerRef.current !== null) clearTimeout(observerTimerRef.current);
+    observerTimerRef.current = null;
+  }, []);
+  useEffect(() => cancelObserverRequest, [cancelObserverRequest]);
   const [manualLat, setManualLat] = useState("");
   const [manualLon, setManualLon] = useState("");
   const [manualObserverError, setManualObserverError] = useState<string | null>(null);
@@ -277,21 +287,46 @@ export default function App() {
   }, [visibleSats, selectedCatnr, positionTime]);
 
   const requestObserver = useCallback(() => {
-    if (!navigator.geolocation) {
+    cancelObserverRequest();
+    const request = observerRequestRef.current;
+    setObserverError(null);
+    const fail = (message: string) => {
+      if (request !== observerRequestRef.current) return;
+      cancelObserverRequest();
       setObserverStatus("unavailable");
+      setObserverError(message);
+    };
+    if (window.isSecureContext === false) {
+      fail("Device location requires HTTPS. Open the secure site, or choose on map.");
+      return;
+    }
+    if (!navigator.geolocation) {
+      fail("Device location is unavailable in this browser. Choose on map or enter coordinates.");
       return;
     }
     setObserverStatus("locating");
-    navigator.geolocation.getCurrentPosition(
-      (pos) => {
-        setObserver(normalizeObserver(pos.coords.latitude, pos.coords.longitude));
-        setObserverSource("device");
-        setObserverStatus("ready");
-      },
-      () => setObserverStatus("unavailable"),
-      { enableHighAccuracy: false, timeout: 8_000, maximumAge: 300_000 }
-    );
-  }, []);
+    observerTimerRef.current = setTimeout(() => fail("Location request timed out. Try again or choose on map."), 30_000);
+    try {
+      navigator.geolocation.getCurrentPosition(
+        (pos) => {
+          if (request !== observerRequestRef.current) return;
+          cancelObserverRequest();
+          setObserver(normalizeObserver(pos.coords.latitude, pos.coords.longitude));
+          setObserverSource("device");
+          setObserverStatus("ready");
+          setObserverSetupOpen(false);
+        },
+        (error) => fail(error.code === 1
+          ? "Location access is blocked. Allow location for this website and enable device Location Services, or choose on map."
+          : error.code === 3
+            ? "Location request timed out. Try again or choose on map."
+            : "Your device could not determine its location. Try again or choose on map."),
+        { enableHighAccuracy: false, timeout: 20_000, maximumAge: 300_000 }
+      );
+    } catch {
+      fail("Device location is unavailable. Choose on map or enter coordinates.");
+    }
+  }, [cancelObserverRequest]);
 
   useEffect(() => {
     if (selectedCatnr === null || observer === null) {
@@ -393,7 +428,9 @@ export default function App() {
   useEffect(() => {
     const handleEscape = (event: KeyboardEvent) => {
       if (event.key !== "Escape") return;
-      if (search !== "") {
+      if (placingObserver) {
+        setPlacingObserver(false);
+      } else if (search !== "") {
         closeSearch();
       } else if (controlsOpen) {
         setControlsOpen(false);
@@ -405,9 +442,12 @@ export default function App() {
     };
     document.addEventListener("keydown", handleEscape);
     return () => document.removeEventListener("keydown", handleEscape);
-  }, [controlsOpen, search, selectedCatnr]);
+  }, [controlsOpen, search, selectedCatnr, placingObserver]);
 
   const setNamedObserver = (point: ObserverPoint, source: ObserverSource) => {
+    cancelObserverRequest();
+    setPlacingObserver(false);
+    setObserverError(null);
     setObserver(normalizeObserver(point.lat, point.lon));
     setObserverSource(source);
     setObserverStatus("ready");
@@ -460,10 +500,10 @@ export default function App() {
       ? "map observer"
       : observerSource === "manual"
         ? "manual observer"
-        : "Paris reference";
+        : "New York reference";
 
   return (
-    <div className={`app ${mode === "2d" ? "map-mode" : ""} ${selected && !controlsOpen && search === "" ? "selection-open" : ""}`}>
+    <div className={`app ${mode === "2d" ? "map-mode" : ""} ${selected && !placingObserver && !controlsOpen && search === "" ? "selection-open" : ""}`}>
       <div className="visualization-stage">
       <Suspense fallback={<div className="map-loading">Loading map renderer…</div>}>
         {mode === "2d" ? (
@@ -474,6 +514,7 @@ export default function App() {
             orbits={selected && orbits[selected.catnr] ? { [selected.catnr]: orbits[selected.catnr] } : {}}
             observer={observer ? { lat: observer.lat, lon: observer.lon } : null}
             onSelect={selectSatellite}
+            placingObserver={placingObserver}
             onSetObserver={(lat, lon) => setNamedObserver({ lat, lon, heightM: 0 }, "map")}
             followCatnr={followCatnr}
             focus={focus}
@@ -498,6 +539,10 @@ export default function App() {
       </Suspense>
       </div>
 
+      {placingObserver && <div className="observer-placement" role="status">
+        <span>Click anywhere on the map to set your observer location.</span>
+        <button type="button" onClick={() => setPlacingObserver(false)}>Cancel placement</button>
+      </div>}
       <header className="mission-hud" aria-label="Satellite tracking status">
         <div className="brand-lockup">
           <span className="brand-mark"><IconSatellite size={18} stroke={1.8} /></span>
@@ -507,7 +552,7 @@ export default function App() {
           </span>
         </div>
         <div className="view-switch" aria-label="View mode">
-          <button aria-label="Show 3D globe" aria-pressed={mode === "3d"} onClick={() => setMode("3d")}>
+          <button aria-label="Show 3D globe" aria-pressed={mode === "3d"} onClick={() => { setMode("3d"); setPlacingObserver(false); }}>
             <IconWorld size={17} stroke={1.8} /><span>Globe</span>
           </button>
           <button aria-label="Show 2D map" aria-pressed={mode === "2d"} onClick={() => setMode("2d")}>
@@ -739,7 +784,7 @@ export default function App() {
         </section>
       )}
 
-      {selected && !controlsOpen && search === "" && (
+      {selected && !placingObserver && !controlsOpen && search === "" && (
         <section className={`panel sat-panel ${detailsExpanded ? "expanded" : ""}`} aria-label={`${selected.name} details`}>
           <div className="panel-header">
             <div className="panel-title">
@@ -790,7 +835,7 @@ export default function App() {
             <div className={`observer-setup ${observerSetupOpen ? "open" : "collapsed"}`}>
               <div className="observer-prompt">
                 <span><strong>Observer location</strong><small>Needed for visibility and pass predictions.</small></span>
-                <button type="button" aria-expanded={observerSetupOpen} onClick={() => setObserverSetupOpen((open) => !open)}>
+                <button type="button" aria-expanded={observerSetupOpen} onClick={() => { cancelObserverRequest(); setObserverStatus("idle"); setObserverSetupOpen((open) => !open); }}>
                   {observerSetupOpen ? "Cancel" : "Set observer location"}
                 </button>
               </div>
@@ -799,11 +844,12 @@ export default function App() {
                   <small>{observerStatus === "locating"
                     ? "Requesting your approximate location…"
                     : observerStatus === "unavailable"
-                      ? "Location was unavailable. Choose a reference or enter coordinates."
-                      : "Choose your location, use the named reference, or enter coordinates."}</small>
+                      ? observerError
+                      : "Use your device location, choose on map, use a reference, or enter coordinates."}</small>
                   <div className="observer-actions">
-                    <button type="button" onClick={requestObserver}>Use my location</button>
-                    <button type="button" onClick={() => setNamedObserver(FALLBACK_OBSERVER, "reference")}>Use Paris reference</button>
+                    <button type="button" disabled={observerStatus === "locating"} onClick={requestObserver}>Use my location</button>
+                    <button type="button" onClick={() => { cancelObserverRequest(); setObserverStatus("idle"); setObserverError(null); setMode("2d"); setLocked(false); setFollowCatnr(null); setPlacingObserver(true); setObserverSetupOpen(false); }}>Choose on map</button>
+                    <button type="button" onClick={() => setNamedObserver(FALLBACK_OBSERVER, "reference")}>Use New York reference</button>
                   </div>
                   <form className="coordinate-form" onSubmit={submitManualObserver}>
                     <label>Latitude<input aria-label="Observer latitude" inputMode="decimal" value={manualLat} onChange={(event) => setManualLat(event.target.value)} placeholder="-90 to 90" /></label>

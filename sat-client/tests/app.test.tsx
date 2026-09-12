@@ -308,7 +308,68 @@ const switchTo2d = async () => {
   await act(async () => { loadHandler!(); });
 };
 
+const openObserverSetup = () => {
+  fireEvent.change(screen.getByRole("textbox", { name: /search satellites/i }), { target: { value: "ISS" } });
+  fireEvent.click(screen.getByRole("button", { name: /ISS \(ZARYA\) NORAD 25544/i }));
+  fireEvent.click(screen.getByRole("button", { name: /set observer location/i }));
+};
+
 describe("App", () => {
+  it("offers New York and ignores a pending device result after reference selection", async () => {
+    geoMock.mockImplementation(() => {});
+    render(<App />);
+    await act(async () => {});
+    openObserverSetup();
+    fireEvent.click(screen.getByRole("button", { name: /use my location/i }));
+    fireEvent.click(screen.getByRole("button", { name: /use New York reference/i }));
+    await act(async () => { geoMock.mock.calls[0][0]({ coords: { latitude: 1, longitude: 2 } }); });
+    expect(screen.getByText(/Observer 40\.71°, -74\.01°/)).toBeInTheDocument();
+  });
+
+  it("explains denied location and keeps map placement available", async () => {
+    geoMock.mockImplementation((_ok, fail) => fail({ code: 1 }));
+    render(<App />);
+    await act(async () => {});
+    openObserverSetup();
+    fireEvent.click(screen.getByRole("button", { name: /use my location/i }));
+    expect(screen.getByText(/Location access is blocked/)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /choose on map/i })).toBeEnabled();
+  });
+
+  it("recovers when the browser never answers a location request", async () => {
+    geoMock.mockImplementation(() => {});
+    render(<App />);
+    await act(async () => {});
+    openObserverSetup();
+    fireEvent.click(screen.getByRole("button", { name: /use my location/i }));
+    await act(async () => { vi.advanceTimersByTime(30000); });
+    expect(screen.getByText(/Location request timed out/)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /use my location/i })).toBeEnabled();
+  });
+
+  it("opens map placement from the globe and allows cancellation", async () => {
+    render(<App />);
+    await act(async () => {});
+    openObserverSetup();
+    fireEvent.click(screen.getByRole("button", { name: /choose on map/i }));
+    await act(async () => { await import("../src/MapView"); });
+    expect(screen.getByRole("button", { name: /show 2d map/i })).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByText(/Click anywhere on the map/)).toBeInTheDocument();
+    expect(screen.queryByRole("region", { name: /ISS.*details/i })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /cancel placement/i }));
+    expect(screen.queryByText(/Click anywhere on the map/)).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /set observer location/i })).toBeInTheDocument();
+  });
+
+  it("does not place an observer on ordinary map clicks", async () => {
+    render(<App />);
+    await act(async () => {});
+    await switchTo2d();
+    clickHitsFeature = false;
+    await act(async () => { capturedClick!({ lngLat: { lng: 2, lat: 48 } }); });
+    expect(screen.queryByText(/Observer 48/)).not.toBeInTheDocument();
+  });
+
   it("fetches the TLE list and collapses an unfiltered count to one readable total", async () => {
     render(<App />);
     await act(async () => {});
@@ -506,17 +567,22 @@ describe("App", () => {
     expect(screen.getByRole("button", { name: "Close" })).toHaveFocus();
   });
 
-  it("sets the observer point on empty-map click", async () => {
+  it("sets the observer only during explicit map placement", async () => {
     render(<App />);
     await act(async () => {});
     await switchTo2d();
     await act(async () => {
       vi.advanceTimersByTime(2000);
     });
+    openObserverSetup();
+    fireEvent.click(screen.getByRole("button", { name: /choose on map/i }));
     clickHitsFeature = false;
     await act(async () => {
       capturedClick!({ lngLat: { lng: 2.35, lat: 48.86 } });
     });
+    expect(screen.getByText(/Observer 48\.86°, 2\.35°/)).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /cancel placement/i })).not.toBeInTheDocument();
+    await act(async () => { capturedClick!({ lngLat: { lng: 10, lat: 10 } }); });
     expect(screen.getByText(/Observer 48\.86°, 2\.35°/)).toBeInTheDocument();
   });
 
@@ -700,6 +766,8 @@ describe("App", () => {
     render(<App />);
     await act(async () => {});
     await switchTo2d();
+    openObserverSetup();
+    fireEvent.click(screen.getByRole("button", { name: /choose on map/i }));
     clickHitsFeature = false;
     await act(async () => {
       capturedClick!({ lngLat: { lng: 293.78, lat: 48.86 } });
