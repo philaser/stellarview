@@ -69,10 +69,10 @@ vi.mock("globe.gl", () => ({
       config.polygonsData = d;
       return this;
     }
-    polygonCapColor() {
+    polygonCapMaterial() {
       return this;
     }
-    polygonSideColor() {
+    polygonSideMaterial() {
       return this;
     }
     polygonStrokeColor() {
@@ -146,6 +146,7 @@ vi.mock("globe.gl", () => ({
     backgroundImageUrl() {
       return this;
     }
+    globeMaterial() { return this; }
     globeImageUrl() {
       return this;
     }
@@ -175,7 +176,8 @@ vi.mock("globe.gl", () => ({
   },
 }));
 
-vi.mock("three", () => {
+vi.mock("three", async () => {
+  const actual = await vi.importActual<typeof import("three")>("three");
   class BufferAttribute {
     array: Float32Array;
     itemSize: number;
@@ -302,6 +304,7 @@ vi.mock("three", () => {
     intensity = 0;
   }
   return {
+    ...actual,
     BufferAttribute,
     BufferGeometry,
     PointsMaterial,
@@ -524,46 +527,34 @@ describe("GlobeView", () => {
     vi.stubGlobal("cancelAnimationFrame", vi.fn());
   });
 
-  it("moves daylight with simulation time instead of keeping a fixed terminator", () => {
-    const { rerender } = render(<GlobeView positions={positions} satNames={satNames}
-      selectedOrbit={null} selectedCatnr={null} onSelect={() => {}} showNight
+  it("moves the geographic night overlay with simulation time", () => {
+    const { rerender, unmount } = render(<GlobeView positions={positions} satNames={satNames}
+      selectedOrbit={null} selectedCatnr={null} onSelect={() => {}} showDaylight
       time={new Date("2026-03-20T12:00:00Z")} />);
-    const noon = (config.lights as any[])[1].position;
-    expect(Math.abs(noon.x)).toBeLessThan(5);
-    expect(Math.abs(noon.y)).toBeLessThan(1);
+    const overlay = sceneAdd.mock.calls.flat().find((item) => item.name === "daylight-overlay");
+    const noon = overlay.quaternion.clone();
+    expect(overlay.geometry.parameters.thetaLength).toBeCloseTo(Math.PI / 2);
     rerender(<GlobeView positions={positions} satNames={satNames}
-      selectedOrbit={null} selectedCatnr={null} onSelect={() => {}} showNight
+      selectedOrbit={null} selectedCatnr={null} onSelect={() => {}} showDaylight
       time={new Date("2026-03-20T18:00:00Z")} />);
-    const evening = (config.lights as any[])[1].position;
-    expect(evening.x).toBeLessThan(-85);
-    expect(evening.x).toBeGreaterThan(-95);
+    expect(overlay.quaternion.equals(noon)).toBe(false);
+    const disposeGeometry = vi.spyOn(overlay.geometry, "dispose");
+    const disposeMaterial = vi.spyOn(overlay.material, "dispose");
+    unmount();
+    expect(disposeGeometry).toHaveBeenCalled();
+    expect(disposeMaterial).toHaveBeenCalled();
   });
 
-  it("uses day/night lighting when showNight is on and uniform ambient-only when off", () => {
-    const { rerender } = render(
-      <GlobeView
-        positions={positions}
-        satNames={satNames}
-        selectedOrbit={null}
-        selectedCatnr={null}
-        showNight={false}
-        onSelect={() => {}}
-      />
-    );
-    // night off: ambient light only, so the whole globe is uniformly lit
-    expect((config.lights as unknown[]).length).toBe(1);
-    rerender(
-      <GlobeView
-        positions={positions}
-        satNames={satNames}
-        selectedOrbit={null}
-        selectedCatnr={null}
-        showNight={true}
-        onSelect={() => {}}
-      />
-    );
-    // night on: ambient + directional pair restores the day/night terminator
-    expect((config.lights as unknown[]).length).toBe(2);
+  it("toggles the geographic overlay without changing scene lighting", () => {
+    const { rerender } = render(<GlobeView positions={positions} satNames={satNames}
+      selectedOrbit={null} selectedCatnr={null} showDaylight={false} onSelect={() => {}} />);
+    const overlay = sceneAdd.mock.calls.flat().find((item) => item.name === "daylight-overlay");
+    const lights = config.lights;
+    expect(overlay.visible).toBe(false);
+    rerender(<GlobeView positions={positions} satNames={satNames}
+      selectedOrbit={null} selectedCatnr={null} showDaylight onSelect={() => {}} />);
+    expect(overlay.visible).toBe(true);
+    expect(config.lights).toBe(lights);
   });
 
   it("trims the rendered draw range when satellites are filtered out", () => {
@@ -597,8 +588,8 @@ describe("GlobeView", () => {
     expect(pos[2]).toBeCloseTo(420 / 6371, 3);
     expect(pos[5]).toBeCloseTo(0.35, 5);
     expect(base.geometry.attributes.color).toBeDefined();
-    expect(sceneAdd).toHaveBeenCalledTimes(1); // base + highlight + orbit line + glow sprite added in one scene.add call
-    expect(sceneAdd.mock.calls[0]).toHaveLength(4);
+    expect(sceneAdd).toHaveBeenCalledTimes(2); // daylight overlay and satellite layers
+    expect(sceneAdd.mock.calls[1]).toHaveLength(4);
     expect(config.particlesData).toBeUndefined(); // no per-satellite particle layers anymore
   });
 

@@ -1,5 +1,6 @@
+import { validateStyleMin } from "@maplibre/maplibre-gl-style-spec";
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { act, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen } from "@testing-library/react";
 import MapView, { type MapViewProps } from "../src/MapView";
 
 let capturedClick: ((e: unknown) => void) | null = null;
@@ -9,6 +10,7 @@ let moveHandler: (() => void) | null = null;
 let mockMousemoveHandler: ((e: unknown) => void) | null = null;
 let mockMouseleaveHandler: (() => void) | null = null;
 let clickHitsFeature = true;
+let mockHits: Array<{ properties: { catnr: number }; geometry: { type: string; coordinates: number[] } }> | null = null;
 let mockLngLat = { lng: 2.35, lat: 48.86 };
 const mockBounds = { west: 0, south: 0, east: 20, north: 20 };
 const mockCanvas = { style: {} as Record<string, string> };
@@ -25,6 +27,16 @@ const addedLayers = new Set<string>();
 
 vi.mock("maplibre-gl", () => ({
   default: class {
+
+    dragPan = { enable() {}, disable() {} };
+    scrollZoom = { enable() {}, disable() {} };
+    boxZoom = { enable() {}, disable() {} };
+    doubleClickZoom = { enable() {}, disable() {} };
+    keyboard = { enable() {}, disable() {} };
+    touchZoomRotate = { enable() {}, disable() {}, disableRotation() {} };
+    project(coords: [number, number]) { return { x: coords[0], y: coords[1] }; }
+    zoomIn() {}
+    zoomOut() {}
     on(evt: string, cb: (e: unknown) => void) {
       if (evt === "click") capturedClick = cb;
       if (evt === "error") errorHandler = cb as () => void;
@@ -51,13 +63,23 @@ vi.mock("maplibre-gl", () => ({
       };
     }
     queryRenderedFeatures() {
-      return clickHitsFeature ? [{ properties: { catnr: 25544 } }] : [];
+      return mockHits ?? (clickHitsFeature ? [{ properties: { catnr: 25544 }, geometry: { type: "Point", coordinates: [0, 0] } }] : []);
     }
     easeTo(...a: unknown[]) { easeToMock(...a); }
     flyTo(...a: unknown[]) { flyToMock(...a); }
     remove() {}
   },
   Map: class {
+
+    dragPan = { enable() {}, disable() {} };
+    scrollZoom = { enable() {}, disable() {} };
+    boxZoom = { enable() {}, disable() {} };
+    doubleClickZoom = { enable() {}, disable() {} };
+    keyboard = { enable() {}, disable() {} };
+    touchZoomRotate = { enable() {}, disable() {}, disableRotation() {} };
+    project(coords: [number, number]) { return { x: coords[0], y: coords[1] }; }
+    zoomIn() {}
+    zoomOut() {}
     on(evt: string, cb: (e: unknown) => void) {
       if (evt === "click") capturedClick = cb;
       if (evt === "error") errorHandler = cb as () => void;
@@ -84,7 +106,7 @@ vi.mock("maplibre-gl", () => ({
       };
     }
     queryRenderedFeatures() {
-      return clickHitsFeature ? [{ properties: { catnr: 25544 } }] : [];
+      return mockHits ?? (clickHitsFeature ? [{ properties: { catnr: 25544 }, geometry: { type: "Point", coordinates: [0, 0] } }] : []);
     }
     easeTo(...a: unknown[]) { easeToMock(...a); }
     flyTo(...a: unknown[]) { flyToMock(...a); }
@@ -100,6 +122,7 @@ describe("MapView", () => {
     mockMousemoveHandler = null;
     mockMouseleaveHandler = null;
     clickHitsFeature = true;
+    mockHits = null;
     mockLngLat = { lng: 2.35, lat: 48.86 };
     mockCanvas.style = {};
     addSourceMock.mockClear();
@@ -129,6 +152,26 @@ describe("MapView", () => {
     night: null,
   };
 
+  it("glides between snapshots instead of jumping to the latest coordinate", () => {
+    let frame: FrameRequestCallback = () => {};
+    vi.stubGlobal("requestAnimationFrame", (cb: FrameRequestCallback) => { frame = cb; return 1; });
+    vi.stubGlobal("cancelAnimationFrame", vi.fn());
+    const clock = vi.spyOn(performance, "now").mockReturnValue(0);
+    const first = [{ catnr: 1, lon: 10, lat: 10, altKm: 400 }];
+    const view = render(<MapView {...props} positions={first} />);
+    act(() => { loadHandler!(); });
+    clock.mockReturnValue(2000);
+    view.rerender(<MapView {...props} positions={[{ ...first[0], lon: 12, lat: 14 }]} />);
+    setDataMock.mockClear();
+    clock.mockReturnValue(3000);
+    act(() => { frame(3000); });
+    expect(setDataMock).toHaveBeenCalled();
+    const data = setDataMock.mock.calls.at(-1)![0];
+    expect(data.features[0].geometry.coordinates).toEqual([11, 12]);
+    view.unmount();
+    clock.mockRestore();
+  });
+
   it("explains initial loading and a failed map load", () => {
     render(<MapView {...props} />);
     expect(screen.getByRole("status")).toHaveTextContent("Loading map");
@@ -137,6 +180,17 @@ describe("MapView", () => {
     act(() => { loadHandler!(); });
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
     expect(screen.queryByRole("status")).not.toBeInTheDocument();
+  });
+
+  it("registers valid runtime overlay styles with MapLibre", () => {
+    render(<MapView {...props} night={[[-180, -80], [0, 80], [180, -80], [-180, -80]]} />);
+    act(() => { loadHandler!(); });
+    const errors = validateStyleMin({
+      version: 8,
+      sources: Object.fromEntries(addSourceMock.mock.calls),
+      layers: addLayerMock.mock.calls.map(([layer]) => layer),
+    });
+    expect(errors.map((error) => error.message)).toEqual([]);
   });
 
   it("adds the satellites and orbits sources", () => {
@@ -168,19 +222,33 @@ describe("MapView", () => {
   it("reports a satellite click via onSelect", () => {
     const onSelect = vi.fn();
     render(<MapView {...props} onSelect={onSelect} />);
+    act(() => { loadHandler!(); });
     capturedClick!({ point: { x: 0, y: 0 } });
     expect(onSelect).toHaveBeenCalledWith(25544);
+  });
+
+  it("selects the closest satellite within the enlarged click target", () => {
+    const onSelect = vi.fn();
+    render(<MapView {...props} onSelect={onSelect} />);
+    act(() => { loadHandler!(); });
+    mockHits = [
+      { properties: { catnr: 2 }, geometry: { type: "Point", coordinates: [10, 0] } },
+      { properties: { catnr: 1 }, geometry: { type: "Point", coordinates: [2, 0] } },
+    ];
+    act(() => { capturedClick!({ point: { x: 0, y: 0 }, lngLat: mockLngLat }); });
+    expect(onSelect).toHaveBeenCalledWith(1);
   });
 
   it("reports an empty-map click via onSetObserver", () => {
     const onSetObserver = vi.fn();
     render(<MapView {...props} onSetObserver={onSetObserver} />);
+    act(() => { loadHandler!(); });
     clickHitsFeature = false;
-    capturedClick!({ lngLat: mockLngLat });
+    capturedClick!({ point: { x: 0, y: 0 }, lngLat: mockLngLat });
     expect(onSetObserver).toHaveBeenCalledWith(48.86, 2.35);
   });
 
-  it("uses a constant data-driven radius and subtle stroke for satellite dots", () => {
+  it("keeps hovered and selected satellites prominent above zoom-scaled dots", () => {
     render(<MapView {...props} />);
     act(() => {
       loadHandler!();
@@ -189,15 +257,13 @@ describe("MapView", () => {
     expect(layerCall).toBeDefined();
     const paint = layerCall![0].paint;
     expect(paint["circle-radius"]).toEqual([
-      "case",
-      ["boolean", ["feature-state", "hover"], false],
-      6,
-      ["get", "selected"],
-      5,
-      2,
+      "interpolate", ["linear"], ["zoom"],
+      1, ["case", ["boolean", ["feature-state", "hover"], false], 6, ["get", "selected"], 5, 1.5],
+      3, ["case", ["boolean", ["feature-state", "hover"], false], 6, ["get", "selected"], 5, 1.8],
+      6, ["case", ["boolean", ["feature-state", "hover"], false], 6, ["get", "selected"], 5, 2.4],
     ]);
-    expect(paint["circle-stroke-color"]).toEqual(["case", ["get", "selected"], "#ffffff", "#153445"]);
-    expect(paint["circle-stroke-width"]).toEqual(["case", ["get", "selected"], 2, 1]);
+    expect(paint["circle-stroke-color"]).toEqual(["case", ["get", "selected"], "#d6ffeb", "#071521"]);
+    expect(paint["circle-stroke-width"]).toEqual(["case", ["get", "selected"], 1.5, 0]);
   });
 
   it("follows the selected satellite with easeTo when followCatnr is set", () => {
@@ -210,7 +276,7 @@ describe("MapView", () => {
         followCatnr={25544}
       />
     );
-    expect(easeToMock).toHaveBeenCalledWith(expect.objectContaining({ center: [2, 45], duration: 500 }));
+    expect(easeToMock).toHaveBeenCalledWith(expect.objectContaining({ center: [2, 45], duration: 0 }));
   });
 
   it("does not follow when followCatnr is null", () => {
@@ -265,17 +331,15 @@ describe("MapView", () => {
     expect(flyToMock).toHaveBeenCalledWith(expect.objectContaining({ center: [2, 45] }));
   });
 
-  it("keeps a constant dot radius across zoom", () => {
+  it("makes ordinary dots smaller at world scale", () => {
     render(<MapView {...props} />);
     act(() => { loadHandler!(); });
     const layerCall = addLayerMock.mock.calls.find((c) => c[0].id === "satellites-layer");
     expect(layerCall![0].paint["circle-radius"]).toEqual([
-      "case",
-      ["boolean", ["feature-state", "hover"], false],
-      6,
-      ["get", "selected"],
-      5,
-      2,
+      "interpolate", ["linear"], ["zoom"],
+      1, ["case", ["boolean", ["feature-state", "hover"], false], 6, ["get", "selected"], 5, 1.5],
+      3, ["case", ["boolean", ["feature-state", "hover"], false], 6, ["get", "selected"], 5, 1.8],
+      6, ["case", ["boolean", ["feature-state", "hover"], false], 6, ["get", "selected"], 5, 2.4],
     ]);
   });
 
@@ -295,6 +359,16 @@ describe("MapView", () => {
     expect(mockCanvas.style.cursor).toBe("");
   });
 
+  it("clears the active hover and cursor when locking", () => {
+    const { rerender } = render(<MapView {...props} />);
+    act(() => { loadHandler!(); });
+    act(() => { mockMousemoveHandler!({ point: { x: 0, y: 0 } }); });
+    expect(mockCanvas.style.cursor).toBe("pointer");
+    rerender(<MapView {...props} locked />);
+    expect(setFeatureStateMock).toHaveBeenLastCalledWith({ source: "satellites", id: 25544 }, { hover: false });
+    expect(mockCanvas.style.cursor).toBe("");
+  });
+
   it("clears the hover state on mouseleave", () => {
     render(<MapView {...props} />);
     act(() => { loadHandler!(); });
@@ -309,21 +383,32 @@ describe("MapView", () => {
     expect(mockCanvas.style.cursor).toBe("");
   });
 
-  it("animates the orbit line dashes while a track is shown", () => {
-    let rafFired = false;
-    vi.stubGlobal(
-      "requestAnimationFrame",
-      vi.fn((cb: (time: number) => void) => {
-        if (!rafFired) {
-          rafFired = true;
-          cb(0);
-        }
-        return 1;
-      })
-    );
+  it("keeps a continuous orbit below the selection markers", () => {
     render(<MapView {...props} orbits={{ 25544: [[0, 0], [1, 1]] }} />);
     act(() => { loadHandler!(); });
-    expect(setPaintPropertyMock).toHaveBeenCalledWith("orbits-layer", "line-dasharray", [3, 2, expect.any(Number), 2]);
+    const orbit = addLayerMock.mock.calls.find(([layer]) => layer.id === "orbits-layer");
+    expect(orbit?.[1]).toBe("satellites-selection");
+    expect(orbit?.[0].paint).not.toHaveProperty("line-dasharray");
+  });
+
+  it("locks satellite selection and observer placement", () => {
+    const onSelect = vi.fn();
+    const onSetObserver = vi.fn();
+    render(<MapView {...props} locked onSelect={onSelect} onSetObserver={onSetObserver} />);
+    act(() => { loadHandler!(); });
+    act(() => { capturedClick!({ point: { x: 0, y: 0 }, lngLat: mockLngLat }); });
+    expect(onSelect).not.toHaveBeenCalled();
+    expect(onSetObserver).not.toHaveBeenCalled();
+    expect(screen.getByRole("button", { name: "Show world" })).toBeDisabled();
+  });
+
+  it("returns to the world view and stops following", () => {
+    const onStopFollow = vi.fn();
+    render(<MapView {...props} onStopFollow={onStopFollow} />);
+    act(() => { loadHandler!(); });
+    fireEvent.click(screen.getByRole("button", { name: "Show world" }));
+    expect(onStopFollow).toHaveBeenCalled();
+    expect(easeToMock).toHaveBeenCalledWith(expect.objectContaining({ center: [0, 20], zoom: 1.5 }));
   });
 
   it("adds the night overlay layer when a polygon is provided", () => {
@@ -333,7 +418,7 @@ describe("MapView", () => {
     rerender(<MapView {...props} night={poly} />);
     const nightCall = addSourceMock.mock.calls.find((c) => c[0] === "night");
     expect(nightCall).toBeDefined();
-    expect(addLayerMock.mock.calls.some((c) => c[0].id === "night-layer" && c[1] === "satellites-layer")).toBe(true);
+    expect(addLayerMock.mock.calls.some((c) => c[0].id === "night-layer" && c[1] === "orbits-glow")).toBe(true);
   });
 
   it("removes the night overlay when the polygon is null", () => {

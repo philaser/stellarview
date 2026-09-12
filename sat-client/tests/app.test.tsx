@@ -24,6 +24,17 @@ const setDataMock = vi.fn();
 
 vi.mock("maplibre-gl", () => ({
   default: class {
+
+    dragPan = { enable() {}, disable() {} };
+    scrollZoom = { enable() {}, disable() {} };
+    boxZoom = { enable() {}, disable() {} };
+    doubleClickZoom = { enable() {}, disable() {} };
+    keyboard = { enable() {}, disable() {} };
+    touchZoomRotate = { enable() {}, disable() {}, disableRotation() {} };
+    project(coords: [number, number]) { return { x: coords[0], y: coords[1] }; }
+    getCanvas() { return { style: {} }; }
+    zoomIn() {}
+    zoomOut() {}
     on(evt: string, cb: (e: unknown) => void) {
       if (evt === "click") capturedClick = cb;
       if (evt === "load") loadHandler = cb as () => void;
@@ -36,15 +47,27 @@ vi.mock("maplibre-gl", () => ({
       return { setData: (data: unknown) => setDataMock(name, data) };
     }
     getLayer() {
-      return undefined;
+      return {};
     }
     queryRenderedFeatures() {
-      return clickHitsFeature ? [{ properties: { catnr: 25544 } }] : [];
+      return clickHitsFeature ? [{ properties: { catnr: 25544 }, geometry: { type: "Point", coordinates: [0, 0] } }] : [];
     }
+    easeTo() {}
     flyTo() {}
     remove() {}
   },
   Map: class {
+
+    dragPan = { enable() {}, disable() {} };
+    scrollZoom = { enable() {}, disable() {} };
+    boxZoom = { enable() {}, disable() {} };
+    doubleClickZoom = { enable() {}, disable() {} };
+    keyboard = { enable() {}, disable() {} };
+    touchZoomRotate = { enable() {}, disable() {}, disableRotation() {} };
+    project(coords: [number, number]) { return { x: coords[0], y: coords[1] }; }
+    getCanvas() { return { style: {} }; }
+    zoomIn() {}
+    zoomOut() {}
     on(evt: string, cb: (e: unknown) => void) {
       if (evt === "click") capturedClick = cb;
       if (evt === "load") loadHandler = cb as () => void;
@@ -57,11 +80,12 @@ vi.mock("maplibre-gl", () => ({
       return { setData: (data: unknown) => setDataMock(name, data) };
     }
     getLayer() {
-      return undefined;
+      return {};
     }
     queryRenderedFeatures() {
-      return clickHitsFeature ? [{ properties: { catnr: 25544 } }] : [];
+      return clickHitsFeature ? [{ properties: { catnr: 25544 }, geometry: { type: "Point", coordinates: [0, 0] } }] : [];
     }
+    easeTo() {}
     flyTo() {}
     remove() {}
   },
@@ -86,8 +110,8 @@ vi.mock("globe.gl", () => ({
     }
     lights() { return this; }
     polygonsData() { return this; }
-    polygonCapColor() { return this; }
-    polygonSideColor() { return this; }
+    polygonCapMaterial() { return this; }
+    polygonSideMaterial() { return this; }
     polygonStrokeColor() { return this; }
     polygonAltitude() { return this; }
     pathsData() { return this; }
@@ -110,6 +134,7 @@ vi.mock("globe.gl", () => ({
     labelResolution() { return this; }
     backgroundColor() { return this; }
     backgroundImageUrl() { return this; }
+    globeMaterial() { return this; }
     globeImageUrl() { return this; }
     bumpImageUrl() { return this; }
     showAtmosphere() { return this; }
@@ -122,7 +147,8 @@ vi.mock("globe.gl", () => ({
 }));
 
 // GlobeView adds custom THREE.Points layers to the globe scene; jsdom has no WebGL so mock the classes used.
-vi.mock("three", () => {
+vi.mock("three", async () => {
+  const actual = await vi.importActual<typeof import("three")>("three");
   class BufferAttribute {
     array: Float32Array;
     itemSize: number;
@@ -232,6 +258,7 @@ vi.mock("three", () => {
     intensity = 0;
   }
   return {
+    ...actual,
     BufferAttribute,
     BufferGeometry,
     PointsMaterial,
@@ -278,6 +305,7 @@ const switchTo2d = async () => {
   await act(async () => {
     await import("../src/MapView");
   });
+  await act(async () => { loadHandler!(); });
 };
 
 describe("App", () => {
@@ -706,10 +734,10 @@ describe("App", () => {
     expect(shown()).toBe("3 objects");
   });
 
-  it("toggles the day/night overlay", async () => {
+  it("toggles the daylight overlay", async () => {
     render(<App />);
     await act(async () => {});
-    const btn = screen.getByLabelText("Day/Night");
+    const btn = screen.getByLabelText("Show daylight");
     expect(btn).toHaveAttribute("aria-pressed", "true");
     fireEvent.click(btn);
     expect(btn).toHaveAttribute("aria-pressed", "false");

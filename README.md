@@ -62,3 +62,14 @@ npm run build -w sat-client
 ```
 
 The server integration tests bind temporary local ports. Run them in an environment that permits loopback listening. See `DESIGN.md` for the satellite interface conventions and display semantics.
+
+## Deploy Stellarview to Render
+
+`render.yaml` defines a free Node web service for the satellite app and its API.
+Build with `npm ci --include=dev && npm run build -w sat-client`, then run
+`NODE_ENV=production npm start -w server`. Render supplies `PORT`; `/healthz`
+reports readiness and the deployed `RENDER_GIT_COMMIT`.
+
+The free service sleeps when idle. Its local TLE cache is ephemeral and is
+refetched from CelesTrak after a new deployment; no satellite API credentials
+are required.

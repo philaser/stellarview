@@ -1383,3 +1383,76 @@ input:focus-visible {
   .coordinate-form button { grid-column: 1; }
   .coordinate-error { grid-column: 1; }
 }
+
+/* The atlas inherits the globe workspace; only the flat canvas layout differs. */
+.map-mode .atlas-map { background: #193e5c; }
+.map-mode .map-loading { background: #0c1928; }
+.atlas-navigation {
+  position: absolute;
+  z-index: 8;
+  top: 82px;
+  left: 14px;
+  display: grid;
+  padding: 4px;
+  border: 1px solid var(--stroke);
+  border-radius: 12px;
+  background: var(--surface);
+  box-shadow: var(--shadow);
+  backdrop-filter: blur(18px);
+}
+.atlas-navigation button {
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 38px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+}
+.atlas-navigation button:hover:not(:disabled) { background: var(--accent-soft); color: var(--text); }
+.atlas-navigation button:disabled { opacity: 0.35; cursor: default; }
+.atlas-navigation button:last-child { border-top: 1px solid var(--stroke); margin-top: 3px; }
+.atlas-selected-label,
+.atlas-tooltip {
+  position: absolute;
+  z-index: 7;
+  max-width: 220px;
+  padding: 6px 9px;
+  border: 1px solid var(--stroke-strong);
+  border-radius: 7px;
+  background: rgba(7, 14, 23, 0.94);
+  color: var(--text);
+  box-shadow: 0 8px 22px rgba(0,0,0,0.35);
+  font: 11px/1.4 "SFMono-Regular", Consolas, monospace;
+  pointer-events: none;
+  overflow-wrap: anywhere;
+}
+.atlas-selected-label {
+  transform: translate(16px, -50%);
+  border-color: rgba(34,255,136,0.38);
+  color: #d6ffeb;
+}
+.atlas-tooltip { z-index: 9; }
+.map-mode .maplibregl-ctrl-attrib { background: rgba(7,14,23,0.88); color: var(--muted); font-size: 10px; }
+.map-mode .maplibregl-ctrl-attrib a { color: #b4c5db; }
+.map-mode .maplibregl-ctrl-attrib-button { filter: invert(1); }
+.map-mode .maplibregl-ctrl-bottom-right { right: 6px; bottom: 0; }
+.map-mode .count-pill { bottom: 36px; }
+.map-mode .orbit-legend { bottom: 36px; }
+@media (min-width: 720px) {
+  .map-mode.selection-open .visualization-stage { right: 0; }
+  .map-mode .sat-panel { width: 304px; }
+}
+@media (max-width: 719px) {
+  .atlas-navigation { top: 120px; left: 10px; }
+  .atlas-navigation button { width: 36px; height: 40px; }
+  .map-mode .orbit-legend { bottom: calc(66px + env(safe-area-inset-bottom)); }
+  .atlas-selected-label { max-width: 145px; font-size: 10px; }
+}
+@media (max-width: 719px) {
+  .map-mode .sat-panel { left: 8px; right: 8px; width: auto; }
+  .map-mode.selection-open .orbit-legend { display: none; }
+  .map-mode .maplibregl-ctrl-bottom-right { top: 120px; bottom: auto; right: 10px; }
+}

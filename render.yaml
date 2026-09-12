@@ -1,0 +1,14 @@
+services:
+  - type: web
+    name: stellarview
+    runtime: node
+    plan: free
+    region: frankfurt
+    buildCommand: npm ci --include=dev && npm run build -w sat-client
+    startCommand: npm start -w server
+    healthCheckPath: /healthz
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: NODE_VERSION
+        value: 22

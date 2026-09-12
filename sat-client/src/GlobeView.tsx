@@ -8,8 +8,6 @@ import type { SatDot } from "./MapView";
 import { subsolarPoint } from "./sat/sun";
 
 const COUNTRIES_URL = "/globe/countries.geojson";
-const EARTH_TEXTURE_URL = "/globe/earth-dark.jpg";
-const EARTH_BUMP_URL = "/globe/earth-topology.png";
 
 // Cap visual altitude so GEO/MEO shells hug the globe instead of rendering as streaks from inside the camera.
 const ALT_CAP = 0.35;
@@ -129,14 +127,6 @@ const TOOLTIP_OFFSET = 14;
 // not a selection gesture.
 const DRAG_TOLERANCE = 5;
 
-/** Scene lights for the 3D globe: with night shading, globe.gl's default ambient+directional pair so
- *  the terminator shows; without, ambient-only so the whole globe reads uniformly lit. */
-export function globeLights(showNight: boolean): THREE.Light[] {
-  return showNight
-    ? [new THREE.AmbientLight(0xc2cede, 1.3 * Math.PI), new THREE.DirectionalLight(0xffffff, 0.65 * Math.PI)]
-    : [new THREE.AmbientLight(0xffffff, 2 * Math.PI)];
-}
-
 export interface GlobeViewProps {
   positions: SatDot[];
   satNames: Record<number, string>;
@@ -144,7 +134,7 @@ export interface GlobeViewProps {
   selectedCatnr: number | null;
   followCatnr?: number | null;
   focus?: { catnr: number; ts: number } | null;
-  showNight?: boolean;
+  showDaylight?: boolean;
   locked?: boolean;
   onSelect: (catnr: number) => void;
   time?: Date;
@@ -204,13 +194,14 @@ export default function GlobeView({
   selectedCatnr,
   followCatnr,
   focus,
-  showNight,
+  showDaylight,
   locked,
   onSelect,
   time,
   onStopFollow,
 }: GlobeViewProps) {
   const containerRef = useRef<HTMLDivElement>(null);
+  const daylightRef = useRef<THREE.Mesh<THREE.SphereGeometry, THREE.MeshBasicMaterial> | null>(null);
   const globeRef = useRef<InstanceType<typeof Globe> | null>(null);
   const baseRef = useRef<THREE.Points | null>(null);
   const highlightDotRef = useRef<THREE.Sprite | null>(null);
@@ -262,15 +253,39 @@ export default function GlobeView({
     // this globe.gl build renders the sphere at ~100 three.js units radius; dot sizes are expressed
     // in globe-radius units, so multiply by the real radius before applying them to materials.
     const globeRadius = (globe as { getGlobeRadius?: () => number }).getGlobeRadius?.() ?? 100;
+    const waterMask = new THREE.TextureLoader().load("/globe/earth-water.png");
+    const earthMaterial = new THREE.MeshPhongMaterial();
+    earthMaterial.onBeforeCompile = (shader) => {
+      shader.uniforms.waterMask = { value: waterMask };
+      shader.uniforms.waterColor = { value: new THREE.Color("#123752") };
+      shader.fragmentShader = "uniform sampler2D waterMask;\nuniform vec3 waterColor;\n" + shader.fragmentShader;
+      shader.fragmentShader = shader.fragmentShader.replace("#include <map_fragment>", `
+        #include <map_fragment>
+        #ifdef USE_MAP
+          float water = smoothstep(0.2, 0.8, texture2D(waterMask, vMapUv).r);
+          diffuseColor.rgb = mix(diffuseColor.rgb, waterColor, water);
+        #endif
+      `);
+    };
     globe
+      .globeMaterial(earthMaterial)
       .backgroundColor("#050816")
-      .globeImageUrl(EARTH_TEXTURE_URL)
-      .bumpImageUrl(EARTH_BUMP_URL)
+      .globeImageUrl("/globe/earth-dark.jpg")
+      .bumpImageUrl("/globe/earth-topology.png")
       .showAtmosphere(true)
       .atmosphereColor("#5f86c8")
       .atmosphereAltitude(0.18)
       .showGraticules(false)
       .pointOfView({ lat: 20, lng: 0, altitude: 2.75 });
+
+    globe.lights([new THREE.AmbientLight(0xffffff, 2 * Math.PI)]);
+    const daylight = new THREE.Mesh(
+      new THREE.SphereGeometry(globeRadius * 1.003, 128, 64, 0, Math.PI * 2, 0, Math.PI / 2),
+      new THREE.MeshBasicMaterial({ color: 0x020617, transparent: true, opacity: 0.45, depthWrite: false }),
+    );
+    daylight.name = "daylight-overlay";
+    daylightRef.current = daylight;
+    globe.scene().add(daylight);
 
     globe
       .labelsData([])
@@ -470,13 +485,21 @@ export default function GlobeView({
     container.addEventListener("pointermove", onPointerMove);
     container.addEventListener("click", onClick);
 
+    // The Earth texture supplies land color; polygons only contribute country borders.
+    const countryCapMaterial = new THREE.MeshBasicMaterial({
+      transparent: true, opacity: 0, depthWrite: false,
+    });
+    const countrySideMaterial = new THREE.MeshBasicMaterial({
+      transparent: true, opacity: 0, depthWrite: false,
+    });
+
     fetch(COUNTRIES_URL)
       .then((r) => r.json())
       .then((geo: { features: object[] }) => {
         globe
           .polygonsData(geo.features)
-          .polygonCapColor(() => "rgba(36, 58, 78, 0.24)")
-          .polygonSideColor(() => "rgba(56, 89, 138, 0.22)")
+          .polygonCapMaterial(countryCapMaterial)
+          .polygonSideMaterial(countrySideMaterial)
           .polygonStrokeColor(() => "rgba(139, 172, 201, 0.46)")
           .polygonAltitude(0.002);
       })
@@ -590,7 +613,15 @@ export default function GlobeView({
       highlightDot.geometry.dispose();
       highlightDot.material.dispose();
       (highlightDot.material as THREE.SpriteMaterial).map?.dispose();
+      globe.scene().remove(daylight);
+      daylight.geometry.dispose();
+      daylight.material.dispose();
+      daylightRef.current = null;
       globe._destructor?.();
+      waterMask.dispose();
+      earthMaterial.dispose();
+      countryCapMaterial.dispose();
+      countrySideMaterial.dispose();
       globeRef.current = null;
       baseRef.current = null;
       highlightDotRef.current = null;
@@ -605,14 +636,14 @@ export default function GlobeView({
   useEffect(() => {
     const globe = globeRef.current;
     if (!globe) return;
-    const lights = globeLights(showNight ?? true);
-    if (lights.length > 1) {
-      const sun = subsolarPoint(time ?? new Date());
-      const direction = globe.getCoords(sun.latDeg, sun.lonDeg, 5);
-      lights[1].position.set(direction.x, direction.y, direction.z);
-    }
-    globe.lights(lights);
-  }, [showNight, time]);
+    const daylight = daylightRef.current;
+    if (!daylight) return;
+    daylight.visible = showDaylight ?? true;
+    const sun = subsolarPoint(time ?? new Date());
+    const direction = globe.getCoords(-sun.latDeg, sun.lonDeg + 180, 0);
+    const nightDirection = daylight.position.clone().set(direction.x, direction.y, direction.z).normalize();
+    daylight.quaternion.setFromUnitVectors(daylight.up, nightDirection);
+  }, [showDaylight, time]);
 
   const handledFocusTsRef = useRef<number | null>(null);
 

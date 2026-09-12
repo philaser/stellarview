@@ -109,6 +109,8 @@ export function primeTleCacheFromDisk(cache: TtlCache<TleCacheEntry>): Promise<v
 }
 
 export interface CreateAppDeps {
+  staticDir?: string;
+  releaseCommit?: string;
   provider?: FlightProvider;
   cacheTtlMs?: number;
   trackCacheTtlMs?: number;
@@ -116,7 +118,7 @@ export interface CreateAppDeps {
 }
 
 export function createApp(
-  { provider, cacheTtlMs, trackCacheTtlMs, tleCacheTtlMs }: CreateAppDeps = {}
+  { provider, cacheTtlMs, trackCacheTtlMs, tleCacheTtlMs, staticDir, releaseCommit }: CreateAppDeps = {}
 ) {
   const providerInstance = provider ?? createProvider(process.env);
   const cache = new TtlCache<FlightState[]>(cacheTtlMs ?? DEFAULT_CACHE_TTL_MS);
@@ -130,6 +132,7 @@ export function createApp(
 
   const app = express();
   app.use(cors());
+  app.get("/healthz", (_req, res) => res.json({ status: "ok", commit: releaseCommit ?? null }));
 
   app.get("/api/airports", (_req, res) => {
     res.sendFile("data/airports.json", { root: path.join(__dirname, "..") }, (err) => {
@@ -279,6 +282,12 @@ export function createApp(
       }
     }
   });
+
+  if (staticDir) {
+    app.use("/api", (_req, res) => res.status(404).json({ error: "not found" }));
+    app.use(express.static(staticDir));
+    app.get("/", (_req, res) => res.sendFile(path.join(staticDir, "index.html")));
+  }
 
   return app;
 }

@@ -1,5 +1,5 @@
 import "dotenv/config";
-import { pathToFileURL } from "url";
+import { fileURLToPath, pathToFileURL } from "url";
 import { createApp } from "./app";
 import { createProvider } from "./providers/factory";
 
@@ -11,7 +11,10 @@ const TLE_CACHE_TTL_MS = Number(process.env.TLE_CACHE_TTL_MS ?? 43_200_000);
 // Guard so importing this module (e.g. from tests) does not boot the server.
 if (import.meta.url === pathToFileURL(process.argv[1]).href) {
   const provider = createProvider(process.env);
-  const app = createApp({ provider, cacheTtlMs: CACHE_TTL_MS, trackCacheTtlMs: TRACK_CACHE_TTL_MS, tleCacheTtlMs: TLE_CACHE_TTL_MS });
+  const app = createApp({ provider, cacheTtlMs: CACHE_TTL_MS, trackCacheTtlMs: TRACK_CACHE_TTL_MS, tleCacheTtlMs: TLE_CACHE_TTL_MS,
+    staticDir: process.env.NODE_ENV === "production" ? fileURLToPath(new URL("../../sat-client/dist/", import.meta.url)) : undefined,
+    releaseCommit: process.env.RENDER_GIT_COMMIT,
+  });
 
   app.listen(PORT, () => {
     console.log(`[server] listening on :${PORT} (provider: ${provider.name})`);

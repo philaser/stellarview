@@ -9,7 +9,6 @@ import {
   IconLock,
   IconLockOpen,
   IconMap2,
-  IconMoonStars,
   IconPlayerPause,
   IconPlayerPlay,
   IconRefresh,
@@ -129,7 +128,7 @@ export default function App() {
   const [search, setSearch] = useState("");
   const [searchIndex, setSearchIndex] = useState(0);
   const [focus, setFocus] = useState<{ catnr: number; ts: number } | null>(null);
-  const [showNight, setShowNight] = useState(true);
+  const [showDaylight, setShowDaylight] = useState(true);
   const [controlsOpen, setControlsOpen] = useState(false);
   const [mode, setMode] = useState<"2d" | "3d">("3d");
   const [locked, setLocked] = useState(false);
@@ -464,19 +463,21 @@ export default function App() {
         : "Paris reference";
 
   return (
-    <div className={`app ${selected && !controlsOpen && search === "" ? "selection-open" : ""}`}>
+    <div className={`app ${mode === "2d" ? "map-mode" : ""} ${selected && !controlsOpen && search === "" ? "selection-open" : ""}`}>
       <div className="visualization-stage">
       <Suspense fallback={<div className="map-loading">Loading map renderer…</div>}>
         {mode === "2d" ? (
           <MapView
             positions={positions}
+            satNames={satNames}
+            locked={locked}
             orbits={selected && orbits[selected.catnr] ? { [selected.catnr]: orbits[selected.catnr] } : {}}
             observer={observer ? { lat: observer.lat, lon: observer.lon } : null}
             onSelect={selectSatellite}
             onSetObserver={(lat, lon) => setNamedObserver({ lat, lon, heightM: 0 }, "map")}
             followCatnr={followCatnr}
             focus={focus}
-            night={showNight ? night : null}
+            night={showDaylight ? night : null}
             onStopFollow={() => setFollowCatnr(null)}
           />
         ) : (
@@ -487,7 +488,7 @@ export default function App() {
             selectedCatnr={selectedCatnr}
             followCatnr={followCatnr}
             focus={focus}
-            showNight={showNight}
+            showDaylight={showDaylight}
             time={orbitTime}
             locked={locked}
             onSelect={selectSatellite}
@@ -567,14 +568,14 @@ export default function App() {
           <IconRefresh size={18} stroke={1.8} />
         </button>
         <button
-          className={`dock-item icon-button ${showNight ? "active" : ""}`}
-          aria-label="Day/Night"
-          aria-pressed={showNight}
-          title="Day and night lighting"
-          data-tooltip={showNight ? "Disable day/night" : "Enable day/night"}
-          onClick={() => setShowNight((shown) => !shown)}
+          className={`dock-item icon-button ${showDaylight ? "active" : ""}`}
+          aria-label="Show daylight"
+          aria-pressed={showDaylight}
+          title="Show daylight"
+          data-tooltip={showDaylight ? "Hide daylight overlay" : "Show daylight overlay"}
+          onClick={() => setShowDaylight((shown) => !shown)}
         >
-          {showNight ? <IconMoonStars size={18} stroke={1.8} /> : <IconSun size={18} stroke={1.8} />}
+          <IconSun size={18} stroke={1.8} />
         </button>
         <label className="dock-search-wrap">
           <IconSearch size={17} stroke={1.8} aria-hidden="true" />
